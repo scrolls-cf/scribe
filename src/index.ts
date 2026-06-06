@@ -1,9 +1,8 @@
 import { Scribe } from "./scribe";
-import type { AuthEnv } from "./auth";
 
 export { Scribe };
 
-export interface Env extends AuthEnv {
+export interface Env {
 	SCRIBE: DurableObjectNamespace<Scribe>;
 }
 
@@ -30,6 +29,7 @@ export default {
 		return Response.json({
 			ok: true,
 			service: "scribe",
+			access: "scrollsmatrix",
 			routes: [
 				"GET /health",
 				"GET /v1/projects/:id/specs",

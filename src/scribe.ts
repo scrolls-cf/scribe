@@ -1,5 +1,4 @@
 import { DurableObject } from "cloudflare:workers";
-import { authorizeWrite, type AuthEnv } from "./auth";
 import {
 	parseSaveSpecInput,
 	SPEC_INDEX_KEY,
@@ -7,7 +6,7 @@ import {
 	type SpecRecord,
 } from "./spec";
 
-export class Scribe extends DurableObject<AuthEnv> {
+export class Scribe extends DurableObject {
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 
@@ -56,9 +55,6 @@ export class Scribe extends DurableObject<AuthEnv> {
 	}
 
 	private async saveSpec(request: Request): Promise<Response> {
-		const denied = authorizeWrite(request, this.env);
-		if (denied) return denied;
-
 		let raw: unknown;
 		try {
 			raw = await request.json();
