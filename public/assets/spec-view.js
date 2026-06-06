@@ -81,7 +81,18 @@ export function renderSpecDetail(root, spec) {
 
   if (titleEl) titleEl.textContent = spec.title;
   if (slugEl) slugEl.textContent = spec.slug;
-  if (bodyEl) bodyEl.innerHTML = renderMarkdown(spec.body || "");
+  if (bodyEl) {
+    bodyEl.innerHTML = spec.body?.trim()
+      ? renderMarkdown(spec.body)
+      : '<p class="prose-empty">No body yet.</p>';
+    const duplicateTitle = bodyEl.querySelector(".prose-title");
+    if (
+      duplicateTitle &&
+      duplicateTitle.textContent.trim().toLowerCase() === spec.title.trim().toLowerCase()
+    ) {
+      duplicateTitle.hidden = true;
+    }
+  }
 
   const doneNotice = root.querySelector("#spec-done-notice");
   if (doneNotice) {

@@ -10,12 +10,6 @@ import {
   devNote,
   setLoadingText,
 } from "./delight.js";
-import {
-  MOCK_ERRORS,
-  MOCK_SPECS,
-  mockMode,
-  mockSpecDetail,
-} from "./mock-data.js";
 import { renderSpecDetail } from "./spec-view.js";
 
 devNote();
@@ -215,14 +209,8 @@ async function openSpec(slug, { updateHash = true } = {}) {
   }
 
   try {
-    let spec = null;
-    if (mockMode()) {
-      spec = mockSpecDetail(slug);
-    }
-    if (!spec) {
-      const data = await apiFetch(`specs/${encodeURIComponent(slug)}`);
-      spec = data.spec;
-    }
+    const data = await apiFetch(`specs/${encodeURIComponent(slug)}`);
+    const spec = data.spec;
     if (!spec) throw new Error("Spec not found");
 
     if (detailLoading) detailLoading.hidden = true;
@@ -238,28 +226,6 @@ async function openSpec(slug, { updateHash = true } = {}) {
       detailLoading.hidden = false;
     }
   }
-}
-
-function mergeMockSpecs(specs) {
-  if (!mockMode()) return specs;
-  const seen = new Set(specs.map((s) => s.slug));
-  const merged = [...specs];
-  for (const mock of MOCK_SPECS) {
-    if (!seen.has(mock.slug)) merged.push(mock);
-  }
-  merged.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-  return merged;
-}
-
-function mergeMockErrors(errors) {
-  if (!mockMode()) return errors;
-  const seen = new Set(errors.map((e) => e.id));
-  const merged = [...errors];
-  for (const mock of MOCK_ERRORS) {
-    if (!seen.has(mock.id)) merged.push(mock);
-  }
-  merged.sort((a, b) => b.created_at.localeCompare(a.created_at));
-  return merged;
 }
 
 async function loadBoard() {
@@ -279,25 +245,20 @@ async function loadBoard() {
       apiFetch("specs"),
       apiFetch("errors"),
     ]);
-    renderSpecs(mergeMockSpecs(specData.specs || []));
-    renderErrors(mergeMockErrors(errorData.errors || []));
+    renderSpecs(specData.specs || []);
+    renderErrors(errorData.errors || []);
   } catch (e) {
-    if (mockMode()) {
-      renderSpecs(mergeMockSpecs([]));
-      renderErrors(mergeMockErrors([]));
-    } else {
-      setLoading(specLoading, false);
-      setLoading(errorLoading, false);
-      const msg =
-        e instanceof TypeError
-          ? "Could not reach scribe. Check your connection and try again."
-          : e.message || "Could not load board";
-      showBoardError(msg);
-      if (specEmpty) specEmpty.hidden = true;
-      if (errorEmpty) errorEmpty.hidden = true;
-      if (specList) specList.hidden = true;
-      if (errorList) errorList.hidden = true;
-    }
+    setLoading(specLoading, false);
+    setLoading(errorLoading, false);
+    const msg =
+      e instanceof TypeError
+        ? "Could not reach scribe. Check your connection and try again."
+        : e.message || "Could not load board";
+    showBoardError(msg);
+    if (specEmpty) specEmpty.hidden = true;
+    if (errorEmpty) errorEmpty.hidden = true;
+    if (specList) specList.hidden = true;
+    if (errorList) errorList.hidden = true;
   } finally {
     setBusy(false);
     const slug = slugFromHash() || specSlugFromPath();
