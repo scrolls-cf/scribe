@@ -3,6 +3,7 @@ import {
   formatAge,
   lockSummary,
   specLinkLabel,
+  specSlugFromErrorSource,
   specSlugFromPath,
   statusLabel,
 } from "./api.js";
@@ -39,10 +40,11 @@ const specCount = document.getElementById("spec-count");
 const detailPanel = document.getElementById("spec-detail-panel");
 const detailRoot = document.getElementById("spec-detail");
 const detailLoading = document.getElementById("spec-detail-loading");
-const detailClose = document.getElementById("spec-detail-close");
 
 let activeSlug = null;
 let cachedSpecs = [];
+let cachedErrors = [];
+let lastOpenedSpecButton = null;
 
 function setBusy(busy) {
   if (boardMain) boardMain.setAttribute("aria-busy", busy ? "true" : "false");
@@ -142,7 +144,14 @@ function renderSpecs(specs) {
       </div>
     `;
 
-    btn.addEventListener("click", () => openSpec(spec.slug));
+    btn.addEventListener("click", () => {
+      if (spec.slug === activeSlug) {
+        closeSpec();
+        return;
+      }
+      lastOpenedSpecButton = btn;
+      openSpec(spec.slug);
+    });
     li.append(btn);
     specList.append(li);
   }
@@ -152,6 +161,7 @@ function renderErrors(errors) {
   if (!errorList || !errorEmpty) return;
   setLoading(errorLoading, false);
   errorList.replaceChildren();
+  cachedErrors = errors;
 
   if (!errors.length) {
     errorList.hidden = true;
@@ -162,17 +172,47 @@ function renderErrors(errors) {
   errorEmpty.hidden = true;
   errorList.hidden = false;
 
+  const knownSlugs = cachedSpecs.map((spec) => spec.slug);
+
   for (const err of errors) {
     const li = document.createElement("li");
     li.className = "error-item";
-    li.innerHTML = `
-      <p>${escape(err.message)}</p>
-      <div class="error-source">${escape(err.source)}</div>
-      <div class="error-age">${formatAge(err.created_at)}</div>
-    `;
-    if (activeSlug && err.source?.includes(activeSlug)) {
+
+    const message = document.createElement("p");
+    message.textContent = err.message;
+    li.append(message);
+
+    const source = document.createElement("div");
+    source.className = "error-source";
+    source.textContent = err.source || "";
+    li.append(source);
+
+    const age = document.createElement("div");
+    age.className = "error-age";
+    age.textContent = formatAge(err.created_at);
+    li.append(age);
+
+    const relatedSlug = specSlugFromErrorSource(err.source, knownSlugs);
+    if (relatedSlug) {
+      const actions = document.createElement("div");
+      actions.className = "error-actions";
+      const link = document.createElement("button");
+      link.type = "button";
+      link.className = "error-spec-link";
+      link.textContent = "View spec";
+      link.addEventListener("click", () => {
+        lastOpenedSpecButton =
+          specList?.querySelector(`[data-slug="${CSS.escape(relatedSlug)}"]`) || link;
+        openSpec(relatedSlug);
+      });
+      actions.append(link);
+      li.append(actions);
+    }
+
+    if (activeSlug && (relatedSlug === activeSlug || err.source?.includes(activeSlug))) {
       li.classList.add("error-item--related");
     }
+
     errorList.append(li);
   }
 }
@@ -184,11 +224,14 @@ function closeSpec({ updateHash = true } = {}) {
   if (detailLoading) detailLoading.hidden = true;
   document.title = "scribe · devscrolls";
   renderSpecs(cachedSpecs);
+  renderErrors(cachedErrors);
   if (updateHash) {
     const url = new URL(window.location.href);
     url.hash = "";
     history.pushState(null, "", url);
   }
+  lastOpenedSpecButton?.focus();
+  lastOpenedSpecButton = null;
 }
 
 async function openSpec(slug, { updateHash = true } = {}) {
@@ -196,6 +239,7 @@ async function openSpec(slug, { updateHash = true } = {}) {
   activeSlug = slug;
   setDetailOpen(true);
   renderSpecs(cachedSpecs);
+  renderErrors(cachedErrors);
   if (detailRoot) detailRoot.hidden = true;
   if (detailLoading) {
     setLoadingText(detailLoading, DETAIL_LOADING);
@@ -265,8 +309,6 @@ async function loadBoard() {
     if (slug) openSpec(slug, { updateHash: false });
   }
 }
-
-detailClose?.addEventListener("click", () => closeSpec());
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && activeSlug) {

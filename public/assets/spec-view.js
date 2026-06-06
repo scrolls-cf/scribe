@@ -59,11 +59,6 @@ export function renderPhases(phaseList, phaseEmpty, spec) {
     title.className = "phase-title";
     title.textContent = phase.title;
 
-    const sr = document.createElement("span");
-    sr.className = "sr-only";
-    sr.textContent = `${phaseStatusLabel(phase.status)}: `;
-    title.prepend(sr);
-
     li.append(dot, title);
     phaseList.append(li);
   }

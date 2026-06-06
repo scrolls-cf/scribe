@@ -19,7 +19,11 @@ function inline(text) {
   s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
   s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   s = s.replace(/\*([^*]+)\*/g, "<em>$1</em>");
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" rel="noopener noreferrer">$1</a>');
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => {
+    const external = /^https?:\/\//i.test(href);
+    const target = external ? ' target="_blank"' : "";
+    return `<a href="${href}" rel="noopener noreferrer"${target}>${label}</a>`;
+  });
   return s;
 }
 
@@ -68,15 +72,57 @@ export function renderMarkdown(source) {
   let inCode = false;
   let codeLang = "";
   let codeBuf = [];
-  let listType = null;
-  let listDepth = 0;
+  /** @type {{ type: "ul" | "ol", depth: number, listClass?: string }[]} */
+  let listStack = [];
 
-  function closeList() {
-    if (listType) {
-      out.push(listType === "ol" ? "</ol>" : "</ul>");
-      listType = null;
-      listDepth = 0;
+  function finishOpenItem() {
+    const frame = listStack[listStack.length - 1];
+    if (frame?.openItem) {
+      out.push("</li>");
+      frame.openItem = false;
     }
+  }
+
+  function closeListLevel() {
+    finishOpenItem();
+    const frame = listStack.pop();
+    if (!frame) return;
+    out.push(frame.type === "ol" ? "</ol>" : "</ul>");
+  }
+
+  function closeAllLists() {
+    while (listStack.length) closeListLevel();
+  }
+
+  function closeListsAbove(depth) {
+    while (listStack.length && listStack[listStack.length - 1].depth > depth) {
+      closeListLevel();
+    }
+  }
+
+  function openListItem(type, depth, listClass, liAttrs, content) {
+    closeListsAbove(depth);
+
+    const top = listStack[listStack.length - 1];
+    if (top && top.depth === depth) {
+      if (top.type !== type || top.listClass !== listClass) {
+        closeListLevel();
+      } else {
+        finishOpenItem();
+      }
+    }
+
+    while (!listStack.length || listStack[listStack.length - 1].depth < depth) {
+      const nextDepth = listStack.length ? listStack[listStack.length - 1].depth + 1 : 0;
+      const tag = type === "ol" ? "ol" : "ul";
+      const cls = listClass && nextDepth === depth ? ` class="${listClass}"` : "";
+      out.push(`<${tag}${cls}>`);
+      listStack.push({ type, depth: nextDepth, listClass: listClass || "", openItem: false });
+    }
+
+    out.push(`<li${liAttrs}>`);
+    out.push(content);
+    listStack[listStack.length - 1].openItem = true;
   }
 
   function flushCode() {
@@ -92,7 +138,7 @@ export function renderMarkdown(source) {
     const line = lines[i];
 
     if (line.startsWith("```")) {
-      closeList();
+      closeAllLists();
       if (inCode) {
         flushCode();
       } else {
@@ -107,7 +153,7 @@ export function renderMarkdown(source) {
     }
 
     if (isTableRow(line) && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
-      closeList();
+      closeAllLists();
       const table = renderTable(lines, i);
       out.push(table.html);
       i = table.next - 1;
@@ -116,7 +162,7 @@ export function renderMarkdown(source) {
 
     const heading = line.match(/^(#{1,6})\s+(.+)$/);
     if (heading) {
-      closeList();
+      closeAllLists();
       const level = heading[1].length;
       const tag = level === 1 ? "h2" : `h${Math.min(level, 6)}`;
       const cls = level === 1 ? ' class="prose-title"' : "";
@@ -125,14 +171,14 @@ export function renderMarkdown(source) {
     }
 
     if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line.trim())) {
-      closeList();
+      closeAllLists();
       out.push("<hr>");
       continue;
     }
 
     const quote = line.match(/^>\s?(.*)$/);
     if (quote) {
-      closeList();
+      closeAllLists();
       const quoteLines = [quote[1]];
       while (i + 1 < lines.length && /^>\s?/.test(lines[i + 1])) {
         i += 1;
@@ -146,16 +192,14 @@ export function renderMarkdown(source) {
     if (task) {
       const depth = Math.floor(task[1].length / 2);
       const done = task[2].toLowerCase() === "x";
-      if (listType !== "ul" || listDepth !== depth) {
-        closeList();
-        out.push('<ul class="prose-tasks">');
-        listType = "ul";
-        listDepth = depth;
-      }
       const itemClass = done ? "prose-task prose-task--done" : "prose-task";
       const label = done ? "Completed" : "Incomplete";
-      out.push(
-        `<li class="${itemClass}" aria-label="${label}: ${escapeHtml(task[3])}"><span class="prose-task-box" aria-hidden="true">${done ? "✓" : "○"}</span>${inline(task[3])}</li>`,
+      openListItem(
+        "ul",
+        depth,
+        "prose-tasks",
+        ` class="${itemClass}" aria-label="${label}: ${escapeHtml(task[3])}"`,
+        `<span class="prose-task-box" aria-hidden="true">${done ? "✓" : "○"}</span>${inline(task[3])}`,
       );
       continue;
     }
@@ -163,39 +207,27 @@ export function renderMarkdown(source) {
     const ul = line.match(/^(\s*)[-*]\s+(.+)$/);
     if (ul) {
       const depth = Math.floor(ul[1].length / 2);
-      if (listType !== "ul" || listDepth !== depth) {
-        closeList();
-        out.push("<ul>");
-        listType = "ul";
-        listDepth = depth;
-      }
-      out.push(`<li>${inline(ul[2])}</li>`);
+      openListItem("ul", depth, "", "", inline(ul[2]));
       continue;
     }
 
     const ol = line.match(/^(\s*)\d+\.\s+(.+)$/);
     if (ol) {
       const depth = Math.floor(ol[1].length / 2);
-      if (listType !== "ol" || listDepth !== depth) {
-        closeList();
-        out.push("<ol>");
-        listType = "ol";
-        listDepth = depth;
-      }
-      out.push(`<li>${inline(ol[2])}</li>`);
+      openListItem("ol", depth, "", "", inline(ol[2]));
       continue;
     }
 
     if (!line.trim()) {
-      closeList();
+      closeAllLists();
       continue;
     }
 
-    closeList();
+    closeAllLists();
     out.push(`<p>${inline(line)}</p>`);
   }
 
   flushCode();
-  closeList();
+  closeAllLists();
   return out.join("\n");
 }

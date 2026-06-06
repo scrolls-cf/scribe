@@ -34,4 +34,16 @@ describe("renderMarkdown", () => {
     assert.doesNotMatch(html, /title: x/);
     assert.match(html, /<h2>Body<\/h2>/);
   });
+
+  it("nests bullet lists", () => {
+    const html = renderMarkdown("- One\n  - Nested\n- Two");
+    assert.match(html, /<ul>\s*<li>\s*One\s*<ul>\s*<li>\s*Nested/s);
+    assert.match(html, /<li>\s*Two\s*<\/li>\s*<\/ul>/s);
+  });
+
+  it("opens external links in a new tab", () => {
+    const html = renderMarkdown("[Docs](https://example.com/docs)");
+    assert.match(html, /target="_blank"/);
+    assert.match(html, /rel="noopener noreferrer"/);
+  });
 });

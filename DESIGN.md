@@ -41,7 +41,7 @@ Scale: page title `clamp(1.5rem, 3vw, 2rem)`, spec titles `1.125rem`, body `1rem
 
 - **App shell:** header (scribe wordmark + devscrolls), full-width board grid
 - **Spec row:** title, slug, status pill, phase progress bar, lock badge (agent id or Open)
-- **Inline plan detail:** phases, rendered markdown body, read-only toolbar (status, updated, lock)
+- **Inline plan detail:** sticky title row (status meta inline), horizontal phase strip, readable markdown below
 - **Phase list:** ordered steps with per-phase status (pending / active / done)
 - **Errors panel:** scrollable list of unresolved errors with source, message, age
 - **Empty states:** `—` for zero active specs; **Clear** for zero unresolved errors

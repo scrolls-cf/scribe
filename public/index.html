@@ -36,7 +36,7 @@
 
   <p id="board-error" class="banner-error" role="alert" hidden></p>
 
-  <main class="scribe-main" id="board-main" aria-busy="true">
+  <main class="scribe-main" id="board-main" aria-busy="true" aria-keyshortcuts="r Escape">
     <section class="scribe-panel scribe-panel--specs" aria-labelledby="specs-heading">
       <h2 id="specs-heading">Active specs <span id="spec-count" class="panel-count" hidden></span></h2>
       <p id="spec-loading" class="panel-status" role="status" aria-live="polite">Loading specs…</p>
@@ -53,26 +53,25 @@
       hidden
       aria-labelledby="spec-detail-title"
     >
-      <button type="button" class="detail-close" id="spec-detail-close">Close spec</button>
       <p id="spec-detail-loading" class="panel-status" role="status" aria-live="polite" hidden>Loading spec…</p>
       <article id="spec-detail" class="spec-detail-inline" hidden>
         <header class="spec-detail-head">
-          <h2 class="spec-detail-title" id="spec-detail-title">
-            <span id="spec-title"></span>
-          </h2>
-          <p class="spec-slug" id="spec-slug"></p>
+          <div class="spec-detail-top">
+            <div class="spec-detail-identity">
+              <h2 class="spec-detail-title" id="spec-detail-title">
+                <span id="spec-title"></span>
+              </h2>
+              <p class="spec-slug" id="spec-slug"></p>
+            </div>
+            <div class="spec-toolbar spec-toolbar--read" id="spec-toolbar"></div>
+          </div>
           <p id="spec-done-notice" class="spec-done-notice" hidden>Completed plan. Not on the active board.</p>
-          <div class="spec-toolbar spec-toolbar--read" id="spec-toolbar"></div>
+          <div class="phase-rail" aria-label="Phases">
+            <p id="phase-empty" class="phase-rail-empty" hidden aria-live="polite">—</p>
+            <ol id="phase-list" class="phase-list phase-list--rail" role="list"></ol>
+          </div>
         </header>
-        <section aria-labelledby="phases-heading">
-          <h3 id="phases-heading" class="spec-section-label">Phases</h3>
-          <p id="phase-empty" class="panel-empty panel-empty-inline" hidden aria-live="polite">—</p>
-          <ol id="phase-list" class="phase-list" role="list"></ol>
-        </section>
-        <section class="spec-body-section" aria-labelledby="spec-body-heading">
-          <h3 id="spec-body-heading" class="spec-section-label">Spec body</h3>
-          <div id="spec-body" class="prose"></div>
-        </section>
+        <div id="spec-body" class="prose"></div>
       </article>
     </section>
 

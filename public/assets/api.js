@@ -101,3 +101,14 @@ export function specLinkLabel(spec) {
   }
   return parts.join(", ");
 }
+
+/** Pull a spec slug from an error source path or message when possible. */
+export function specSlugFromErrorSource(source, knownSlugs = []) {
+  if (!source) return "";
+  const pathMatch = String(source).match(/\/specs\/([a-z0-9-]+)/);
+  if (pathMatch) return pathMatch[1];
+  for (const slug of knownSlugs) {
+    if (source.includes(slug)) return slug;
+  }
+  return "";
+}
