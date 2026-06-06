@@ -6,7 +6,7 @@ export { Scribe };
 
 export interface Env {
 	SCRIBE: DurableObjectNamespace<Scribe>;
-	ASSETS: Fetcher;
+	ASSETS?: Fetcher;
 }
 
 const DEFAULT_PROJECT = "default";
@@ -29,12 +29,6 @@ async function forwardToProject(
 	return stub.fetch(new Request(target.toString(), c.req.raw));
 }
 
-async function serveAsset(env: Env, request: Request, pathname: string) {
-	const url = new URL(request.url);
-	url.pathname = pathname;
-	return env.ASSETS.fetch(new Request(url.toString(), request));
-}
-
 app.get("/.well-known/matrix", (c) => c.json(SCRIBE_MATRIX_MANIFEST));
 
 app.get("/health", (c) => c.json({ ok: true, service: "scribe" }));
@@ -48,35 +42,45 @@ app.all("/v1/projects/*", async (c) => {
 });
 
 app.get("/specs/:slug", async (c) => {
-	if (c.req.header("accept")?.includes("application/json")) {
-		return forwardToProject(c, DEFAULT_PROJECT, `specs/${c.req.param("slug")}`);
+	if (!c.req.header("accept")?.includes("application/json")) {
+		return c.notFound();
 	}
-	return serveAsset(c.env, c.req.raw, "/spec.html");
+	return forwardToProject(c, DEFAULT_PROJECT, `specs/${c.req.param("slug")}`);
 });
 
 app.get("/", async (c) => {
-	if (c.req.header("accept")?.includes("application/json")) {
-		return c.json({
-			ok: true,
-			service: "scribe",
-			matrix_project: MATRIX_PROJECT,
-			endpoints: {
-				health: "/health",
-				matrix: "/.well-known/matrix",
-				projects: "/v1/projects/:project",
-				ui: "/",
-			},
-		});
+	if (!c.req.header("accept")?.includes("application/json")) {
+		return c.notFound();
 	}
-	return serveAsset(c.env, c.req.raw, "/index.html");
+	return c.json({
+		ok: true,
+		service: "scribe",
+		matrix_project: MATRIX_PROJECT,
+		endpoints: {
+			health: "/health",
+			matrix: "/.well-known/matrix",
+			projects: "/v1/projects/:project",
+			ui: "/",
+		},
+	});
 });
+
+function assetRequest(request: Request): Request {
+	const url = new URL(request.url);
+	const specPage = url.pathname.match(/^\/specs\/([^/]+)\/?$/);
+	if (specPage && !request.headers.get("accept")?.includes("application/json")) {
+		url.pathname = "/spec/";
+		return new Request(url.toString(), request);
+	}
+	return request;
+}
 
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext) {
 		const res = await app.fetch(request, env, ctx);
 		if (res.status !== 404) return res;
 		if (env.ASSETS && (request.method === "GET" || request.method === "HEAD")) {
-			return env.ASSETS.fetch(request);
+			return env.ASSETS.fetch(assetRequest(request));
 		}
 		return new Response(JSON.stringify({ ok: false, error: "not_found" }), {
 			status: 404,

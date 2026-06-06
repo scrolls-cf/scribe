@@ -7,6 +7,16 @@
   <meta name="description" content="scribe planning dashboard for devscrolls" />
   <meta name="theme-color" content="#242933" />
   <title>scribe · devscrolls</title>
+  <script>
+    (function () {
+      var path = location.pathname.replace(/\/$/, "");
+      var specAt = path.indexOf("/specs/");
+      var root = specAt >= 0 ? path.slice(0, specAt) : path;
+      var base = document.createElement("base");
+      base.href = (root || "") + "/";
+      document.head.appendChild(base);
+    })();
+  </script>
   <link rel="icon" href="assets/logo.png" type="image/png" />
   <link rel="stylesheet" href="assets/tokens.css" />
   <link rel="stylesheet" href="assets/site.css" />
