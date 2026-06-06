@@ -1,7 +1,6 @@
 import {
   formatAge,
   lockSummary,
-  phaseStatusLabel,
   statusLabel,
 } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
@@ -19,19 +18,6 @@ function hideDuplicateShellContent(bodyEl, spec) {
   const title = normalizeTitle(spec.title);
   hideIfTitleMatch(bodyEl.querySelector(".prose-title"), title);
   hideIfTitleMatch(bodyEl.firstElementChild, title);
-
-  if (!spec.phases?.length) return;
-  for (const heading of bodyEl.querySelectorAll("h2, h3")) {
-    if (!/^phases$/i.test(heading.textContent.trim())) continue;
-    heading.hidden = true;
-    let sibling = heading.nextElementSibling;
-    while (sibling && sibling.tagName === "P" && !sibling.textContent.trim()) {
-      sibling.hidden = true;
-      sibling = sibling.nextElementSibling;
-    }
-    if (sibling?.classList?.contains("prose-table-wrap")) sibling.hidden = true;
-    break;
-  }
 }
 
 export function renderToolbar(toolbar, spec) {
@@ -54,52 +40,6 @@ export function renderToolbar(toolbar, spec) {
   if (!spec.lock) lock.dataset.open = "true";
   lock.textContent = lockSummary(spec.lock);
   toolbar.append(lock);
-
-  const phases = spec.phases || [];
-  if (phases.length) {
-    const done = phases.filter((p) => p.status === "done").length;
-    const progress = document.createElement("span");
-    progress.className = "spec-toolbar-meta";
-    progress.textContent = `${done}/${phases.length} phases`;
-    toolbar.insertBefore(progress, lock);
-  }
-}
-
-export function renderPhases(phaseList, phaseEmpty, spec) {
-  if (!phaseList || !phaseEmpty) return;
-  phaseList.replaceChildren();
-
-  const phases = spec.phases || [];
-  if (!phases.length) {
-    phaseEmpty.hidden = false;
-    phaseList.hidden = true;
-    return;
-  }
-
-  phaseEmpty.hidden = true;
-  phaseList.hidden = false;
-
-  for (const phase of phases) {
-    const li = document.createElement("li");
-    li.className = "phase-row";
-    li.dataset.status = phase.status;
-    li.setAttribute(
-      "aria-label",
-      `${phase.title}, ${phaseStatusLabel(phase.status)}`,
-    );
-
-    const dot = document.createElement("span");
-    dot.className = "phase-dot";
-    dot.setAttribute("aria-hidden", "true");
-
-    const title = document.createElement("span");
-    title.className = "phase-title";
-    title.textContent = phase.title;
-    title.setAttribute("title", phase.title);
-
-    li.append(dot, title);
-    phaseList.append(li);
-  }
 }
 
 export function renderSpecDetail(root, spec) {
@@ -108,8 +48,6 @@ export function renderSpecDetail(root, spec) {
   const titleEl = root.querySelector("#spec-title");
   const slugEl = root.querySelector("#spec-slug");
   const toolbar = root.querySelector("#spec-toolbar");
-  const phaseList = root.querySelector("#phase-list");
-  const phaseEmpty = root.querySelector("#phase-empty");
   const bodyEl = root.querySelector("#spec-body");
 
   if (titleEl) titleEl.textContent = spec.title;
@@ -127,5 +65,4 @@ export function renderSpecDetail(root, spec) {
   }
 
   renderToolbar(toolbar, spec);
-  renderPhases(phaseList, phaseEmpty, spec);
 }

@@ -7,7 +7,7 @@ Operational planning dashboard on the devscrolls dark slate base. Full-width boa
 ## Layout
 
 - **Default:** specs column + errors rail (edge to edge).
-- **Detail open:** compact spec list | inline plan detail | errors rail.
+- **Detail open:** compact spec list | inline spec detail | errors rail.
 - **Routing:** hash `#specs/{slug}` for drill-down without navigation; `/specs/{slug}` redirects to board hash.
 
 ## Colors
@@ -40,9 +40,9 @@ Scale: page title `clamp(1.5rem, 3vw, 2rem)`, spec titles `1.125rem`, body `1rem
 ## Components
 
 - **App shell:** header (scribe wordmark + devscrolls), full-width board grid
-- **Spec row:** title, slug, status pill, phase progress bar, lock badge (agent id or Open)
-- **Inline plan detail:** sticky title row (status meta inline), horizontal phase strip, readable markdown below
-- **Phase list:** ordered steps with per-phase status (pending / active / done)
+- **Spec row:** title, slug, status pill, optional phase progress bar, lock badge (agent id or Open)
+- **Inline spec detail:** sticky title row (status meta inline), readable markdown below
+- **Phase list:** board-row progress only (agent API metadata)
 - **Errors panel:** scrollable list of unresolved errors with source, message, age
 - **Empty states:** `—` for zero active specs; **Clear** for zero unresolved errors
 
@@ -59,8 +59,8 @@ Locks: **Held by {agent}** or **Open**.
 
 ### Spec body (markdown)
 
-Agent spec bodies are markdown (often pasted from DESIGN.md). The renderer strips YAML frontmatter, demotes `#` headings (title lives in the shell), supports tables, blockquotes, task lists, and fenced code. `TARGET` / `GOAL` / `SUCCESS` / `CONSTRAINTS` / `CONTEXT` lines render as labeled spec rows. Duplicate shell titles and redundant **Phases** tables (when API phases exist) are hidden in the detail pane.
+Agent spec bodies are markdown (often pasted from DESIGN.md). The renderer strips YAML frontmatter, demotes `#` headings (title lives in the shell), supports tables, blockquotes, task lists, and fenced code. `TARGET` / `GOAL` / `SUCCESS` / `CONSTRAINTS` / `CONTEXT` lines render as labeled spec rows. Duplicate shell titles are hidden in the detail pane.
 
 ## Terminology
 
-**Spec**, **plan**, **phase**, **errors board**. CSS prefixes: `scribe-`, `spec-`, `error-`. No **fleet**.
+**Spec**, **phase**, **errors board**. CSS prefixes: `scribe-`, `spec-`, `error-`. No **fleet**.
