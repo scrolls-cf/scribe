@@ -32,6 +32,7 @@ const errorLoading = document.getElementById("error-loading");
 const boardError = document.getElementById("board-error");
 const boardMain = document.getElementById("board-main");
 const hostEl = document.getElementById("site-host");
+const specCount = document.getElementById("spec-count");
 
 if (hostEl) hostEl.textContent = window.location.host;
 
@@ -71,11 +72,16 @@ function renderSpecs(specs) {
   if (!specs.length) {
     specList.hidden = true;
     specEmpty.hidden = false;
+    if (specCount) specCount.hidden = true;
     return;
   }
 
   specEmpty.hidden = true;
   specList.hidden = false;
+  if (specCount) {
+    specCount.textContent = String(specs.length);
+    specCount.hidden = false;
+  }
 
   for (const spec of specs) {
     const li = document.createElement("li");
@@ -185,7 +191,11 @@ async function loadBoard() {
   } catch (e) {
     setLoading(specLoading, false);
     setLoading(errorLoading, false);
-    showBoardError(e.message || "Could not load board");
+    const msg =
+      e instanceof TypeError
+        ? "Could not reach scribe. Check your connection and try again."
+        : e.message || "Could not load board";
+    showBoardError(msg);
     if (specEmpty) specEmpty.hidden = true;
     if (errorEmpty) errorEmpty.hidden = true;
     if (specList) specList.hidden = true;

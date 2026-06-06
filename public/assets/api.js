@@ -7,6 +7,15 @@ export function serviceRoot() {
   return path;
 }
 
+export function specSlugFromPath(pathname = window.location.pathname) {
+  const path = pathname.replace(/\/$/, "");
+  const specAt = path.indexOf("/specs/");
+  if (specAt === -1) return "";
+  const rest = path.slice(specAt + "/specs/".length);
+  const slug = rest.split("/")[0];
+  return slug ? decodeURIComponent(slug) : "";
+}
+
 export function apiPath(segment) {
   const root = serviceRoot();
   const base = `${root}/v1/projects/${PROJECT}`;

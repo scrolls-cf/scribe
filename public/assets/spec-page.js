@@ -5,6 +5,7 @@ import {
   lockSummary,
   phaseStatusLabel,
   serviceRoot,
+  specSlugFromPath,
   statusLabel,
 } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
@@ -35,9 +36,7 @@ const hostEl = document.getElementById("site-host");
 
 if (hostEl) hostEl.textContent = window.location.host;
 
-const slug = decodeURIComponent(
-  window.location.pathname.replace(/^\/specs\//, "").replace(/\/$/, ""),
-);
+const slug = specSlugFromPath();
 
 function showError(message) {
   if (specLoading) specLoading.hidden = true;
@@ -158,7 +157,7 @@ async function acquireLock(slug) {
       body: JSON.stringify({ agent_id: agentId() }),
     });
     toast("Lock acquired");
-    render(data);
+    render(data.spec);
   } catch (e) {
     showError(e.data?.error === "lock held" ? "Another agent holds this spec" : e.message);
   }
@@ -171,7 +170,7 @@ async function releaseLock(slug) {
       body: JSON.stringify({ agent_id: agentId() }),
     });
     toast("Lock released");
-    render(data);
+    render(data.spec);
   } catch (e) {
     showError(e.message || "Could not release lock");
   }
