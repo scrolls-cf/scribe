@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="scribe planning dashboard for devscrolls" />
+  <meta name="theme-color" content="#242933" />
+  <title>scribe · devscrolls</title>
+  <link rel="icon" href="assets/logo.png" type="image/png" />
+  <link rel="stylesheet" href="assets/tokens.css" />
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+
+<body>
+  <header class="scribe-header enter">
+    <a class="scribe-brand" href=".">
+      <img src="assets/logo.png" alt="" width="32" height="32" />
+      <div>
+        <strong>scribe</strong>
+        <span>devscrolls</span>
+      </div>
+    </a>
+  </header>
+
+  <p id="board-error" class="banner-error" role="alert" hidden></p>
+
+  <main class="scribe-main enter enter-delay-1">
+    <section class="scribe-panel" aria-labelledby="specs-heading">
+      <h2 id="specs-heading">Active specs</h2>
+      <ul id="spec-list" class="spec-list" role="list" hidden></ul>
+      <p id="spec-empty" class="empty-line" hidden aria-live="polite">—</p>
+    </section>
+
+    <aside class="scribe-panel" aria-labelledby="errors-heading">
+      <h2 id="errors-heading">Errors board</h2>
+      <ul id="error-list" class="error-list" role="list" hidden></ul>
+      <p id="error-empty" class="empty-line" hidden aria-live="polite">—</p>
+    </aside>
+  </main>
+
+  <footer class="scribe-footer enter enter-delay-1">
+    <code id="site-host"></code>
+    <nav aria-label="Utility">
+      <a href="health">Health</a>
+      <a href="v1/projects/default/specs" target="_blank" rel="noopener">Specs JSON</a>
+    </nav>
+  </footer>
+
+  <script type="module" src="assets/board.js"></script>
+</body>
+
+</html>

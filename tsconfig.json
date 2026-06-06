@@ -15,5 +15,6 @@
     "skipLibCheck": true,
     "types": ["@cloudflare/workers-types"]
   },
-  "include": ["worker-configuration.d.ts", "src/**/*.ts"]
+  "include": ["worker-configuration.d.ts", "src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
 }

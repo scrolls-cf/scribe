@@ -6,7 +6,7 @@ describe("service registry", () => {
 	it("parses matrix manifest", () => {
 		const result = parseMatrixManifest({
 			id: "scribe",
-			title: "Scribe",
+			title: "scribe",
 			description: "Spec store",
 			routes: [{ method: "GET", path: "/health" }],
 		});

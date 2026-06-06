@@ -1,3 +1,4 @@
+import { Hono } from "hono";
 import { Scribe } from "./scribe";
 import { SCRIBE_MATRIX_MANIFEST } from "./matrix-manifest";
 
@@ -5,38 +6,81 @@ export { Scribe };
 
 export interface Env {
 	SCRIBE: DurableObjectNamespace<Scribe>;
+	ASSETS: Fetcher;
 }
 
 const DEFAULT_PROJECT = "default";
 const MATRIX_PROJECT = "matrix";
 
-export default {
-	async fetch(request: Request, env: Env): Promise<Response> {
-		const url = new URL(request.url);
+const app = new Hono<{ Bindings: Env }>();
 
-		if (url.pathname === "/.well-known/matrix") {
-			return Response.json(SCRIBE_MATRIX_MANIFEST);
-		}
+function projectStub(env: Env, projectId: string) {
+	return env.SCRIBE.get(env.SCRIBE.idFromName(projectId));
+}
 
-		if (url.pathname === "/health") {
-			return Response.json({ ok: true, service: "scribe" });
-		}
+async function forwardToProject(
+	c: { env: Env; req: { url: string; raw: Request } },
+	projectId: string,
+	suffix: string,
+) {
+	const stub = projectStub(c.env, projectId);
+	const target = new URL(c.req.url);
+	target.pathname = suffix ? `/${suffix}` : "/health";
+	return stub.fetch(new Request(target.toString(), c.req.raw));
+}
 
-		if (url.pathname.startsWith("/v1/projects/")) {
-			const parts = url.pathname.split("/").filter(Boolean);
-			const projectId = parts[2] ?? DEFAULT_PROJECT;
-			const stub = env.SCRIBE.get(env.SCRIBE.idFromName(projectId));
-			const suffix = parts.slice(3).join("/");
-			const target = new URL(request.url);
-			target.pathname = suffix ? `/${suffix}` : "/health";
-			return stub.fetch(new Request(target.toString(), request));
-		}
+async function serveAsset(env: Env, request: Request, pathname: string) {
+	const url = new URL(request.url);
+	url.pathname = pathname;
+	return env.ASSETS.fetch(new Request(url.toString(), request));
+}
 
-		return Response.json({
+app.get("/.well-known/matrix", (c) => c.json(SCRIBE_MATRIX_MANIFEST));
+
+app.get("/health", (c) => c.json({ ok: true, service: "scribe" }));
+
+app.all("/v1/projects/*", async (c) => {
+	const url = new URL(c.req.url);
+	const parts = url.pathname.split("/").filter(Boolean);
+	const projectId = parts[2] ?? DEFAULT_PROJECT;
+	const suffix = parts.slice(3).join("/");
+	return forwardToProject(c, projectId, suffix);
+});
+
+app.get("/specs/:slug", async (c) => {
+	if (c.req.header("accept")?.includes("application/json")) {
+		return forwardToProject(c, DEFAULT_PROJECT, `specs/${c.req.param("slug")}`);
+	}
+	return serveAsset(c.env, c.req.raw, "/spec.html");
+});
+
+app.get("/", async (c) => {
+	if (c.req.header("accept")?.includes("application/json")) {
+		return c.json({
 			ok: true,
 			service: "scribe",
 			matrix_project: MATRIX_PROJECT,
-			well_known: "/.well-known/matrix",
+			endpoints: {
+				health: "/health",
+				matrix: "/.well-known/matrix",
+				projects: "/v1/projects/:project",
+				ui: "/",
+			},
+		});
+	}
+	return serveAsset(c.env, c.req.raw, "/index.html");
+});
+
+export default {
+	async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+		const res = await app.fetch(request, env, ctx);
+		if (res.status !== 404) return res;
+		if (env.ASSETS && (request.method === "GET" || request.method === "HEAD")) {
+			return env.ASSETS.fetch(request);
+		}
+		return new Response(JSON.stringify({ ok: false, error: "not_found" }), {
+			status: 404,
+			headers: { "content-type": "application/json" },
 		});
 	},
-} satisfies ExportedHandler<Env>;
+};
