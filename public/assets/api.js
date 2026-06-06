@@ -66,3 +66,29 @@ export function statusLabel(status) {
   };
   return map[status] || status;
 }
+
+export function phaseStatusLabel(status) {
+  const map = {
+    pending: "Pending",
+    active: "Active",
+    done: "Done",
+  };
+  return map[status] || status;
+}
+
+export function lockSummary(lock) {
+  if (!lock) return "Open";
+  return `Held by ${lock.agent_id}`;
+}
+
+export function specLinkLabel(spec) {
+  const parts = [
+    spec.title,
+    statusLabel(spec.status),
+    lockSummary(spec.lock),
+  ];
+  if (spec.phases_total > 0) {
+    parts.push(`${spec.phases_done} of ${spec.phases_total} phases done`);
+  }
+  return parts.join(", ");
+}

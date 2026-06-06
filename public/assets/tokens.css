@@ -19,6 +19,8 @@
   --color-success-dim: oklch(0.72 0.14 155 / 0.16);
   --color-warning: oklch(0.82 0.15 85);
   --color-warning-dim: oklch(0.82 0.15 85 / 0.16);
+  --color-error: oklch(0.65 0.18 25);
+  --color-primary-on: oklch(0.18 0.04 209);
   --color-unbound: oklch(0.48 0.02 264);
 
   --font-sans: "Sora", system-ui, sans-serif;

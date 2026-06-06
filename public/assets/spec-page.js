@@ -1,13 +1,36 @@
-import { agentId, apiFetch, formatAge, serviceRoot, statusLabel } from "./api.js";
+import {
+  agentId,
+  apiFetch,
+  formatAge,
+  lockSummary,
+  phaseStatusLabel,
+  serviceRoot,
+  statusLabel,
+} from "./api.js";
 import { renderMarkdown } from "./markdown.js";
+import {
+  devNote,
+  flashNode,
+  setLoadingText,
+  toast,
+} from "./delight.js";
+
+devNote();
+
+const SPEC_LOADING = [
+  "Loading plan and phases…",
+  "Fetching spec from scribe…",
+];
 
 const detail = document.getElementById("spec-detail");
 const titleEl = document.getElementById("spec-title");
 const slugEl = document.getElementById("spec-slug");
 const toolbar = document.getElementById("spec-toolbar");
 const phaseList = document.getElementById("phase-list");
+const phaseEmpty = document.getElementById("phase-empty");
 const bodyEl = document.getElementById("spec-body");
 const specError = document.getElementById("spec-error");
+const specLoading = document.getElementById("spec-loading");
 const hostEl = document.getElementById("site-host");
 
 if (hostEl) hostEl.textContent = window.location.host;
@@ -17,9 +40,11 @@ const slug = decodeURIComponent(
 );
 
 function showError(message) {
+  if (specLoading) specLoading.hidden = true;
   if (!specError) return;
   specError.textContent = message;
   specError.hidden = false;
+  specError.setAttribute("aria-live", "assertive");
   if (detail) detail.hidden = true;
 }
 
@@ -49,7 +74,7 @@ function renderToolbar(spec) {
   if (spec.lock && spec.lock.agent_id !== me) {
     const held = document.createElement("span");
     held.className = "lock-badge";
-    held.textContent = `Held by ${spec.lock.agent_id}`;
+    held.textContent = lockSummary(spec.lock);
     toolbar.append(held);
     return;
   }
@@ -67,21 +92,26 @@ function renderToolbar(spec) {
 }
 
 function renderPhases(spec) {
-  if (!phaseList) return;
+  if (!phaseList || !phaseEmpty) return;
   phaseList.replaceChildren();
 
   if (!spec.phases.length) {
-    const empty = document.createElement("p");
-    empty.className = "empty-line";
-    empty.textContent = "—";
-    phaseList.append(empty);
+    phaseEmpty.hidden = false;
+    phaseList.hidden = true;
     return;
   }
+
+  phaseEmpty.hidden = true;
+  phaseList.hidden = false;
 
   for (const phase of spec.phases) {
     const li = document.createElement("li");
     li.className = "phase-row";
     li.dataset.status = phase.status;
+    li.setAttribute(
+      "aria-label",
+      `${phase.title}, ${phaseStatusLabel(phase.status)}`,
+    );
 
     const dot = document.createElement("span");
     dot.className = "phase-dot";
@@ -91,6 +121,11 @@ function renderPhases(spec) {
     title.className = "phase-title";
     title.textContent = phase.title;
 
+    const sr = document.createElement("span");
+    sr.className = "sr-only";
+    sr.textContent = `${phaseStatusLabel(phase.status)}: `;
+    title.prepend(sr);
+
     const actions = document.createElement("div");
     actions.className = "phase-actions";
 
@@ -98,8 +133,8 @@ function renderPhases(spec) {
       const doneBtn = document.createElement("button");
       doneBtn.type = "button";
       doneBtn.className = "btn btn-ghost";
-      doneBtn.textContent = "Mark done";
-      doneBtn.addEventListener("click", () => markPhaseDone(spec, phase.id));
+      doneBtn.textContent = "Mark phase done";
+      doneBtn.addEventListener("click", () => markPhaseDone(spec, phase.id, li));
       actions.append(doneBtn);
     }
 
@@ -122,6 +157,7 @@ async function acquireLock(slug) {
       method: "POST",
       body: JSON.stringify({ agent_id: agentId() }),
     });
+    toast("Lock acquired");
     render(data);
   } catch (e) {
     showError(e.data?.error === "lock held" ? "Another agent holds this spec" : e.message);
@@ -134,20 +170,19 @@ async function releaseLock(slug) {
       method: "DELETE",
       body: JSON.stringify({ agent_id: agentId() }),
     });
+    toast("Lock released");
     render(data);
   } catch (e) {
     showError(e.message || "Could not release lock");
   }
 }
 
-async function markPhaseDone(spec, phaseId) {
+async function markPhaseDone(spec, phaseId, rowEl) {
   const phases = spec.phases.map((p) => ({ ...p }));
-  let found = false;
   let nextPending = false;
   for (const p of phases) {
     if (p.id === phaseId) {
       p.status = "done";
-      found = true;
       nextPending = true;
       continue;
     }
@@ -162,11 +197,19 @@ async function markPhaseDone(spec, phaseId) {
   const status = allDone ? "done" : spec.status === "ready" ? "in_progress" : spec.status;
 
   try {
+    flashNode(rowEl, "phase-row--flash");
     const updated = await patchSpec(spec.slug, { phases, status });
     if (updated.status === "done") {
-      window.location.href = `${serviceRoot() || "."}/`;
+      toast("Spec complete. Returning to board…");
+      const delay = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? 0
+        : 420;
+      setTimeout(() => {
+        window.location.href = `${serviceRoot() || "."}/`;
+      }, delay);
       return;
     }
+    toast("Phase marked done");
     render(updated);
   } catch (e) {
     showError(e.message || "Could not update phase");
@@ -175,6 +218,7 @@ async function markPhaseDone(spec, phaseId) {
 
 function render(spec) {
   if (!detail || !titleEl || !slugEl || !bodyEl) return;
+  if (specLoading) specLoading.hidden = true;
   specError.hidden = true;
   detail.hidden = false;
   document.title = `${spec.title} · scribe`;
@@ -186,8 +230,9 @@ function render(spec) {
 }
 
 async function load() {
+  setLoadingText(specLoading, SPEC_LOADING);
   if (!slug) {
-    showError("Missing spec slug");
+    showError("Missing spec slug in URL");
     return;
   }
   try {

@@ -1,22 +1,71 @@
-import { apiFetch, formatAge, statusLabel } from "./api.js";
+import {
+  apiFetch,
+  formatAge,
+  lockSummary,
+  specLinkLabel,
+  statusLabel,
+} from "./api.js";
+import {
+  devNote,
+  dismissNode,
+  setLoadingText,
+  toast,
+} from "./delight.js";
+
+devNote();
+
+const SPEC_LOADING = [
+  "Reading active specs from the edge store…",
+  "Checking lock state on in-flight plans…",
+];
+const ERROR_LOADING = [
+  "Loading unresolved errors…",
+  "Scanning the errors board…",
+];
 
 const specList = document.getElementById("spec-list");
 const specEmpty = document.getElementById("spec-empty");
+const specLoading = document.getElementById("spec-loading");
 const errorList = document.getElementById("error-list");
 const errorEmpty = document.getElementById("error-empty");
+const errorLoading = document.getElementById("error-loading");
 const boardError = document.getElementById("board-error");
+const boardMain = document.getElementById("board-main");
 const hostEl = document.getElementById("site-host");
 
 if (hostEl) hostEl.textContent = window.location.host;
+
+function setBusy(busy) {
+  if (boardMain) boardMain.setAttribute("aria-busy", busy ? "true" : "false");
+}
 
 function showBoardError(message) {
   if (!boardError) return;
   boardError.textContent = message;
   boardError.hidden = false;
+  boardError.setAttribute("aria-live", "assertive");
+}
+
+function hideBoardError() {
+  if (boardError) boardError.hidden = true;
+}
+
+function setLoading(panel, loading) {
+  if (!panel) return;
+  panel.hidden = !loading;
+}
+
+function escape(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function renderSpecs(specs) {
   if (!specList || !specEmpty) return;
+  setLoading(specLoading, false);
   specList.replaceChildren();
 
   if (!specs.length) {
@@ -33,15 +82,15 @@ function renderSpecs(specs) {
     const link = document.createElement("a");
     link.className = "spec-card";
     link.href = `specs/${encodeURIComponent(spec.slug)}`;
+    link.setAttribute("aria-label", specLinkLabel(spec));
 
     const pct =
       spec.phases_total > 0
-        ? Math.round((spec.phases_done / spec.phases_total) * 100)
+        ? spec.phases_done / spec.phases_total
         : 0;
 
-    const lockHtml = spec.lock
-      ? `<span class="lock-badge">Held by ${escape(spec.lock.agent_id)}</span>`
-      : `<span class="lock-badge" data-open="true">Open</span>`;
+    const lockText = lockSummary(spec.lock);
+    const lockOpen = !spec.lock;
 
     link.innerHTML = `
       <div class="spec-card-head">
@@ -52,8 +101,10 @@ function renderSpecs(specs) {
         <span class="status-pill" data-status="${escape(spec.status)}">${escape(statusLabel(spec.status))}</span>
       </div>
       <div class="spec-meta">
-        ${lockHtml}
-        <div class="phase-bar" aria-hidden="true"><span style="width:${pct}%"></span></div>
+        <span class="lock-badge" ${lockOpen ? 'data-open="true"' : ""}>${escape(lockText)}</span>
+        <div class="phase-bar${pct >= 1 ? " phase-bar--full" : ""}" role="img" aria-label="${spec.phases_done} of ${spec.phases_total} phases done">
+          <span style="--progress: ${pct}"></span>
+        </div>
         <span>${spec.phases_done}/${spec.phases_total} phases</span>
         <span>${formatAge(spec.updated_at)}</span>
       </div>
@@ -66,6 +117,7 @@ function renderSpecs(specs) {
 
 function renderErrors(errors) {
   if (!errorList || !errorEmpty) return;
+  setLoading(errorLoading, false);
   errorList.replaceChildren();
 
   if (!errors.length) {
@@ -94,13 +146,15 @@ function renderErrors(errors) {
   errorList.querySelectorAll("[data-resolve]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = btn.getAttribute("data-resolve");
+      const item = btn.closest(".error-item");
       btn.disabled = true;
       try {
         await apiFetch(`errors/${encodeURIComponent(id)}`, {
           method: "PATCH",
           body: JSON.stringify({ resolved: true }),
         });
-        await loadBoard();
+        toast("Error marked resolved");
+        dismissNode(item, () => loadBoard());
       } catch (e) {
         showBoardError(e.message || "Could not resolve error");
         btn.disabled = false;
@@ -109,15 +163,18 @@ function renderErrors(errors) {
   });
 }
 
-function escape(text) {
-  return String(text)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 async function loadBoard() {
+  setBusy(true);
+  hideBoardError();
+  setLoadingText(specLoading, SPEC_LOADING);
+  setLoadingText(errorLoading, ERROR_LOADING);
+  setLoading(specLoading, true);
+  setLoading(errorLoading, true);
+  if (specList) specList.hidden = true;
+  if (errorList) errorList.hidden = true;
+  if (specEmpty) specEmpty.hidden = true;
+  if (errorEmpty) errorEmpty.hidden = true;
+
   try {
     const [specData, errorData] = await Promise.all([
       apiFetch("specs"),
@@ -126,15 +183,15 @@ async function loadBoard() {
     renderSpecs(specData.specs || []);
     renderErrors(errorData.errors || []);
   } catch (e) {
+    setLoading(specLoading, false);
+    setLoading(errorLoading, false);
     showBoardError(e.message || "Could not load board");
-    if (specEmpty) {
-      specEmpty.hidden = false;
-      specList.hidden = true;
-    }
-    if (errorEmpty) {
-      errorEmpty.hidden = false;
-      errorList.hidden = true;
-    }
+    if (specEmpty) specEmpty.hidden = true;
+    if (errorEmpty) errorEmpty.hidden = true;
+    if (specList) specList.hidden = true;
+    if (errorList) errorList.hidden = true;
+  } finally {
+    setBusy(false);
   }
 }
 
