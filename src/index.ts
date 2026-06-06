@@ -1,4 +1,5 @@
 import { Scribe } from "./scribe";
+import { SCRIBE_MATRIX_MANIFEST } from "./matrix-manifest";
 
 export { Scribe };
 
@@ -7,10 +8,15 @@ export interface Env {
 }
 
 const DEFAULT_PROJECT = "default";
+const MATRIX_PROJECT = "matrix";
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const url = new URL(request.url);
+
+		if (url.pathname === "/.well-known/matrix") {
+			return Response.json(SCRIBE_MATRIX_MANIFEST);
+		}
 
 		if (url.pathname === "/health") {
 			return Response.json({ ok: true, service: "scribe" });
@@ -29,13 +35,8 @@ export default {
 		return Response.json({
 			ok: true,
 			service: "scribe",
-			access: "scrollsmatrix",
-			routes: [
-				"GET /health",
-				"GET /v1/projects/:id/specs",
-				"GET /v1/projects/:id/specs/:slug",
-				"POST /v1/projects/:id/specs",
-			],
+			matrix_project: MATRIX_PROJECT,
+			well_known: "/.well-known/matrix",
 		});
 	},
 } satisfies ExportedHandler<Env>;
