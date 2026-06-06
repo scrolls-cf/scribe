@@ -1,8 +1,9 @@
 import { Scribe } from "./scribe";
+import type { AuthEnv } from "./auth";
 
 export { Scribe };
 
-export interface Env {
+export interface Env extends AuthEnv {
 	SCRIBE: DurableObjectNamespace<Scribe>;
 }
 
@@ -29,7 +30,12 @@ export default {
 		return Response.json({
 			ok: true,
 			service: "scribe",
-			routes: ["GET /health", "GET|PUT /v1/projects/:id/state", "GET /v1/projects/:id/health"],
+			routes: [
+				"GET /health",
+				"GET /v1/projects/:id/specs",
+				"GET /v1/projects/:id/specs/:slug",
+				"POST /v1/projects/:id/specs",
+			],
 		});
 	},
 } satisfies ExportedHandler<Env>;
