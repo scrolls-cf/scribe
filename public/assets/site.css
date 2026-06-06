@@ -740,7 +740,38 @@ button:disabled {
 
 .spec-detail-inline .prose {
   margin-top: 0;
-  max-width: 72ch;
+  max-width: none;
+}
+
+.prose-spec-line {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 7rem) minmax(0, 1fr);
+  gap: var(--space-2) var(--space-4);
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: color-mix(in oklch, var(--color-surface) 55%, transparent);
+  border: 1px solid var(--color-border);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+}
+
+.prose-spec-key {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--color-primary);
+  letter-spacing: 0.03em;
+}
+
+.prose-spec-value {
+  color: var(--color-ink-secondary);
+  text-wrap: pretty;
+}
+
+@media (max-width: 640px) {
+  .prose-spec-line {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
 }
 
 .spec-section-label {

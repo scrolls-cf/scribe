@@ -224,6 +224,14 @@ export function renderMarkdown(source) {
     }
 
     closeAllLists();
+    const specLine = line.match(/^(TARGET|GOAL|SUCCESS|CONSTRAINTS|CONTEXT):\s*(.*)$/i);
+    if (specLine) {
+      const key = specLine[1].toUpperCase();
+      out.push(
+        `<p class="prose-spec-line"><span class="prose-spec-key">${key}</span><span class="prose-spec-value">${inline(specLine[2])}</span></p>`,
+      );
+      continue;
+    }
     out.push(`<p>${inline(line)}</p>`);
   }
 

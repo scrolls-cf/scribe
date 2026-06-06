@@ -46,4 +46,11 @@ describe("renderMarkdown", () => {
     assert.match(html, /target="_blank"/);
     assert.match(html, /rel="noopener noreferrer"/);
   });
+
+  it("styles agent spec lines", () => {
+    const html = renderMarkdown("TARGET: New public Worker");
+    assert.match(html, /prose-spec-line/);
+    assert.match(html, /prose-spec-key">TARGET/);
+    assert.match(html, /New public Worker/);
+  });
 });

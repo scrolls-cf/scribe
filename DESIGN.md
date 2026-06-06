@@ -59,7 +59,7 @@ Locks: **Held by {agent}** or **Open**.
 
 ### Spec body (markdown)
 
-Agent spec bodies are markdown (often pasted from DESIGN.md). The renderer strips YAML frontmatter, demotes `#` headings (title lives in the shell), and supports tables, blockquotes, task lists, and fenced code.
+Agent spec bodies are markdown (often pasted from DESIGN.md). The renderer strips YAML frontmatter, demotes `#` headings (title lives in the shell), supports tables, blockquotes, task lists, and fenced code. `TARGET` / `GOAL` / `SUCCESS` / `CONSTRAINTS` / `CONTEXT` lines render as labeled spec rows. Duplicate shell titles and redundant **Phases** tables (when API phases exist) are hidden in the detail pane.
 
 ## Terminology
 

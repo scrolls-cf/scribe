@@ -6,6 +6,34 @@ import {
 } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
 
+function normalizeTitle(text) {
+  return String(text).trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function hideIfTitleMatch(el, title) {
+  if (!el || el.hidden) return;
+  if (normalizeTitle(el.textContent) === title) el.hidden = true;
+}
+
+function hideDuplicateShellContent(bodyEl, spec) {
+  const title = normalizeTitle(spec.title);
+  hideIfTitleMatch(bodyEl.querySelector(".prose-title"), title);
+  hideIfTitleMatch(bodyEl.firstElementChild, title);
+
+  if (!spec.phases?.length) return;
+  for (const heading of bodyEl.querySelectorAll("h2, h3")) {
+    if (!/^phases$/i.test(heading.textContent.trim())) continue;
+    heading.hidden = true;
+    let sibling = heading.nextElementSibling;
+    while (sibling && sibling.tagName === "P" && !sibling.textContent.trim()) {
+      sibling.hidden = true;
+      sibling = sibling.nextElementSibling;
+    }
+    if (sibling?.classList?.contains("prose-table-wrap")) sibling.hidden = true;
+    break;
+  }
+}
+
 export function renderToolbar(toolbar, spec) {
   if (!toolbar) return;
   toolbar.replaceChildren();
@@ -26,6 +54,15 @@ export function renderToolbar(toolbar, spec) {
   if (!spec.lock) lock.dataset.open = "true";
   lock.textContent = lockSummary(spec.lock);
   toolbar.append(lock);
+
+  const phases = spec.phases || [];
+  if (phases.length) {
+    const done = phases.filter((p) => p.status === "done").length;
+    const progress = document.createElement("span");
+    progress.className = "spec-toolbar-meta";
+    progress.textContent = `${done}/${phases.length} phases`;
+    toolbar.insertBefore(progress, lock);
+  }
 }
 
 export function renderPhases(phaseList, phaseEmpty, spec) {
@@ -58,6 +95,7 @@ export function renderPhases(phaseList, phaseEmpty, spec) {
     const title = document.createElement("span");
     title.className = "phase-title";
     title.textContent = phase.title;
+    title.setAttribute("title", phase.title);
 
     li.append(dot, title);
     phaseList.append(li);
@@ -80,13 +118,7 @@ export function renderSpecDetail(root, spec) {
     bodyEl.innerHTML = spec.body?.trim()
       ? renderMarkdown(spec.body)
       : '<p class="prose-empty">No body yet.</p>';
-    const duplicateTitle = bodyEl.querySelector(".prose-title");
-    if (
-      duplicateTitle &&
-      duplicateTitle.textContent.trim().toLowerCase() === spec.title.trim().toLowerCase()
-    ) {
-      duplicateTitle.hidden = true;
-    }
+    hideDuplicateShellContent(bodyEl, spec);
   }
 
   const doneNotice = root.querySelector("#spec-done-notice");
