@@ -31,6 +31,25 @@ Focused, operational, trustworthy. devscrolls family: minimal chrome, status you
 4. **Errors are first-class** — unresolved org errors sit beside specs, not buried in logs.
 5. **devscrolls continuity** — same palette and type as scrollsmatrix; Scribe reads as part of the platform.
 
+## Spec lifecycle
+
+| Stage | API status | On the board? | Where it lives |
+|-------|------------|---------------|----------------|
+| Spec saved | `ready` | Yes | Active specs list |
+| Plan in flight | `in_progress` or `blocked` | Yes | Active specs list; inline detail shows phases + markdown body |
+| Complete | `done` | **No** | Scribe edge store only; agents use `GET .../specs/{slug}` or `GET .../specs?all=true` |
+
+A **spec** becomes a **plan** when an agent assigns phases (via API). It stays on the board until an agent marks the final phase done and sets status to `done`. Humans never archive or resolve from the UI; they read active work and drill into detail. A direct link (`#specs/{slug}`) still loads a completed record for read-only review.
+
+## Empty board semantics
+
+| Panel | Empty display | Meaning |
+|-------|---------------|---------|
+| Active specs | `—` | Nothing in flight (no queued work, or all work completed) |
+| Errors board | `Clear` | No unresolved org failures; panel stays visible as a structural anchor |
+
+Empty states are not CTAs. Agents create specs, advance phases, resolve errors, and mark completion through the API.
+
 ## Accessibility & Inclusion
 
 Standard best practices: semantic landmarks, visible focus, status not conveyed by color alone, `prefers-reduced-motion` respected. Body text meets WCAG 2.1 AA contrast on devscrolls dark surfaces.

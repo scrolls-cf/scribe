@@ -1,71 +1,10 @@
-<!DOCTYPE html>
-<html lang="en">
-
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="scribe spec detail" />
-  <meta name="theme-color" content="#242933" />
-  <title>Spec · scribe</title>
-  <script>
-    (function () {
-      var path = location.pathname.replace(/\/$/, "");
-      var specAt = path.indexOf("/specs/");
-      var root = specAt >= 0 ? path.slice(0, specAt) : path;
-      var base = document.createElement("base");
-      base.href = (root || "") + "/";
-      document.head.appendChild(base);
-    })();
-  </script>
-  <link rel="icon" href="assets/logo.png" type="image/png" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600&display=swap" />
-  <link rel="stylesheet" href="assets/tokens.css" />
-  <link rel="stylesheet" href="assets/site.css" />
-</head>
-
-<body>
-  <a class="skip-link" href="#spec-detail">Skip to spec</a>
-  <header class="scribe-header">
-    <a class="scribe-brand" href="./">
-      <img src="assets/logo.png" alt="" width="32" height="32" decoding="async" />
-      <div>
-        <span class="scribe-title scribe-title--sm">scribe</span>
-      </div>
-    </a>
-  </header>
-
-  <p id="spec-error" class="banner-error" role="alert" hidden></p>
-  <p id="spec-loading" class="panel-status spec-loading" role="status" aria-live="polite">Loading spec…</p>
-
-  <article class="spec-detail" id="spec-detail" hidden>
-    <header class="spec-detail-head">
-      <a class="back-link" href="./">Back to active specs</a>
-      <h1 id="spec-title"></h1>
-      <p class="spec-slug" id="spec-slug"></p>
-      <div class="spec-toolbar" id="spec-toolbar"></div>
-    </header>
-
-    <section aria-labelledby="phases-heading">
-      <h2 id="phases-heading">Phases</h2>
-      <p id="phase-empty" class="panel-empty panel-empty-inline" hidden>
-        <span>No phases on this spec yet.</span>
-      </p>
-      <ol id="phase-list" class="phase-list" role="list"></ol>
-    </section>
-
-    <div id="spec-body" class="prose" aria-label="Spec body"></div>
-  </article>
-
-  <footer class="scribe-footer">
-    <code id="site-host"></code>
-    <nav aria-label="Utility">
-      <a href="health">View health check</a>
-    </nav>
-  </footer>
-
-  <script type="module" src="assets/spec-page.js"></script>
-</body>
-
-</html>
+(function () {
+  var path = location.pathname.replace(/\/$/, "");
+  var specAt = path.indexOf("/specs/");
+  if (specAt < 0) return;
+  var slug = decodeURIComponent(path.slice(specAt + "/specs/".length).split("/")[0] || "");
+  var root = path.slice(0, specAt) || "";
+  var target = (root || "") + "/";
+  if (slug) target += "#specs/" + encodeURIComponent(slug);
+  location.replace(target);
+})();

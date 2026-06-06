@@ -3,14 +3,20 @@ import {
   formatAge,
   lockSummary,
   specLinkLabel,
+  specSlugFromPath,
   statusLabel,
 } from "./api.js";
 import {
   devNote,
-  dismissNode,
   setLoadingText,
-  toast,
 } from "./delight.js";
+import {
+  MOCK_ERRORS,
+  MOCK_SPECS,
+  mockMode,
+  mockSpecDetail,
+} from "./mock-data.js";
+import { renderSpecDetail } from "./spec-view.js";
 
 devNote();
 
@@ -22,6 +28,10 @@ const ERROR_LOADING = [
   "Loading unresolved errors…",
   "Scanning the errors board…",
 ];
+const DETAIL_LOADING = [
+  "Loading plan and phases…",
+  "Fetching spec from scribe…",
+];
 
 const specList = document.getElementById("spec-list");
 const specEmpty = document.getElementById("spec-empty");
@@ -31,10 +41,14 @@ const errorEmpty = document.getElementById("error-empty");
 const errorLoading = document.getElementById("error-loading");
 const boardError = document.getElementById("board-error");
 const boardMain = document.getElementById("board-main");
-const hostEl = document.getElementById("site-host");
 const specCount = document.getElementById("spec-count");
+const detailPanel = document.getElementById("spec-detail-panel");
+const detailRoot = document.getElementById("spec-detail");
+const detailLoading = document.getElementById("spec-detail-loading");
+const detailClose = document.getElementById("spec-detail-close");
 
-if (hostEl) hostEl.textContent = window.location.host;
+let activeSlug = null;
+let cachedSpecs = [];
 
 function setBusy(busy) {
   if (boardMain) boardMain.setAttribute("aria-busy", busy ? "true" : "false");
@@ -64,10 +78,25 @@ function escape(text) {
     .replace(/"/g, "&quot;");
 }
 
+function slugFromHash() {
+  const hash = window.location.hash.replace(/^#/, "");
+  if (hash.startsWith("specs/")) {
+    return decodeURIComponent(hash.slice("specs/".length).split("/")[0]);
+  }
+  return "";
+}
+
+function setDetailOpen(open) {
+  if (!boardMain || !detailPanel) return;
+  boardMain.dataset.detailOpen = open ? "true" : "false";
+  detailPanel.hidden = !open;
+}
+
 function renderSpecs(specs) {
   if (!specList || !specEmpty) return;
   setLoading(specLoading, false);
   specList.replaceChildren();
+  cachedSpecs = specs;
 
   if (!specs.length) {
     specList.hidden = true;
@@ -85,10 +114,13 @@ function renderSpecs(specs) {
 
   for (const spec of specs) {
     const li = document.createElement("li");
-    const link = document.createElement("a");
-    link.className = "spec-card";
-    link.href = `specs/${encodeURIComponent(spec.slug)}`;
-    link.setAttribute("aria-label", specLinkLabel(spec));
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "spec-card";
+    if (spec.slug === activeSlug) btn.classList.add("is-selected");
+    btn.dataset.slug = spec.slug;
+    btn.setAttribute("aria-label", specLinkLabel(spec));
+    btn.setAttribute("aria-pressed", spec.slug === activeSlug ? "true" : "false");
 
     const pct =
       spec.phases_total > 0
@@ -98,7 +130,7 @@ function renderSpecs(specs) {
     const lockText = lockSummary(spec.lock);
     const lockOpen = !spec.lock;
 
-    link.innerHTML = `
+    btn.innerHTML = `
       <div class="spec-card-head">
         <div>
           <h3>${escape(spec.title)}</h3>
@@ -116,7 +148,8 @@ function renderSpecs(specs) {
       </div>
     `;
 
-    li.append(link);
+    btn.addEventListener("click", () => openSpec(spec.slug));
+    li.append(btn);
     specList.append(li);
   }
 }
@@ -142,31 +175,91 @@ function renderErrors(errors) {
       <p>${escape(err.message)}</p>
       <div class="error-source">${escape(err.source)}</div>
       <div class="error-age">${formatAge(err.created_at)}</div>
-      <div class="error-actions">
-        <button type="button" class="btn btn-ghost" data-resolve="${escape(err.id)}">Mark resolved</button>
-      </div>
     `;
+    if (activeSlug && err.source?.includes(activeSlug)) {
+      li.classList.add("error-item--related");
+    }
     errorList.append(li);
   }
+}
 
-  errorList.querySelectorAll("[data-resolve]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const id = btn.getAttribute("data-resolve");
-      const item = btn.closest(".error-item");
-      btn.disabled = true;
-      try {
-        await apiFetch(`errors/${encodeURIComponent(id)}`, {
-          method: "PATCH",
-          body: JSON.stringify({ resolved: true }),
-        });
-        toast("Error marked resolved");
-        dismissNode(item, () => loadBoard());
-      } catch (e) {
-        showBoardError(e.message || "Could not resolve error");
-        btn.disabled = false;
-      }
-    });
-  });
+function closeSpec({ updateHash = true } = {}) {
+  activeSlug = null;
+  setDetailOpen(false);
+  if (detailRoot) detailRoot.hidden = true;
+  if (detailLoading) detailLoading.hidden = true;
+  document.title = "scribe · devscrolls";
+  renderSpecs(cachedSpecs);
+  if (updateHash) {
+    const url = new URL(window.location.href);
+    url.hash = "";
+    history.pushState(null, "", url);
+  }
+}
+
+async function openSpec(slug, { updateHash = true } = {}) {
+  if (!slug) return;
+  activeSlug = slug;
+  setDetailOpen(true);
+  renderSpecs(cachedSpecs);
+  if (detailRoot) detailRoot.hidden = true;
+  if (detailLoading) {
+    setLoadingText(detailLoading, DETAIL_LOADING);
+    detailLoading.hidden = false;
+  }
+
+  if (updateHash) {
+    const url = new URL(window.location.href);
+    url.hash = `specs/${encodeURIComponent(slug)}`;
+    history.pushState(null, "", url);
+  }
+
+  try {
+    let spec = null;
+    if (mockMode()) {
+      spec = mockSpecDetail(slug);
+    }
+    if (!spec) {
+      const data = await apiFetch(`specs/${encodeURIComponent(slug)}`);
+      spec = data.spec;
+    }
+    if (!spec) throw new Error("Spec not found");
+
+    if (detailLoading) detailLoading.hidden = true;
+    if (detailRoot) {
+      detailRoot.hidden = false;
+      renderSpecDetail(detailRoot, spec);
+    }
+    document.title = `${spec.title} · scribe · devscrolls`;
+    detailPanel?.scrollTo(0, 0);
+  } catch (e) {
+    if (detailLoading) {
+      detailLoading.textContent = e.message || "Could not load spec";
+      detailLoading.hidden = false;
+    }
+  }
+}
+
+function mergeMockSpecs(specs) {
+  if (!mockMode()) return specs;
+  const seen = new Set(specs.map((s) => s.slug));
+  const merged = [...specs];
+  for (const mock of MOCK_SPECS) {
+    if (!seen.has(mock.slug)) merged.push(mock);
+  }
+  merged.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  return merged;
+}
+
+function mergeMockErrors(errors) {
+  if (!mockMode()) return errors;
+  const seen = new Set(errors.map((e) => e.id));
+  const merged = [...errors];
+  for (const mock of MOCK_ERRORS) {
+    if (!seen.has(mock.id)) merged.push(mock);
+  }
+  merged.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  return merged;
 }
 
 async function loadBoard() {
@@ -186,23 +279,51 @@ async function loadBoard() {
       apiFetch("specs"),
       apiFetch("errors"),
     ]);
-    renderSpecs(specData.specs || []);
-    renderErrors(errorData.errors || []);
+    renderSpecs(mergeMockSpecs(specData.specs || []));
+    renderErrors(mergeMockErrors(errorData.errors || []));
   } catch (e) {
-    setLoading(specLoading, false);
-    setLoading(errorLoading, false);
-    const msg =
-      e instanceof TypeError
-        ? "Could not reach scribe. Check your connection and try again."
-        : e.message || "Could not load board";
-    showBoardError(msg);
-    if (specEmpty) specEmpty.hidden = true;
-    if (errorEmpty) errorEmpty.hidden = true;
-    if (specList) specList.hidden = true;
-    if (errorList) errorList.hidden = true;
+    if (mockMode()) {
+      renderSpecs(mergeMockSpecs([]));
+      renderErrors(mergeMockErrors([]));
+    } else {
+      setLoading(specLoading, false);
+      setLoading(errorLoading, false);
+      const msg =
+        e instanceof TypeError
+          ? "Could not reach scribe. Check your connection and try again."
+          : e.message || "Could not load board";
+      showBoardError(msg);
+      if (specEmpty) specEmpty.hidden = true;
+      if (errorEmpty) errorEmpty.hidden = true;
+      if (specList) specList.hidden = true;
+      if (errorList) errorList.hidden = true;
+    }
   } finally {
     setBusy(false);
+    const slug = slugFromHash() || specSlugFromPath();
+    if (slug) openSpec(slug, { updateHash: false });
   }
 }
+
+detailClose?.addEventListener("click", () => closeSpec());
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && activeSlug) {
+    e.preventDefault();
+    closeSpec();
+    return;
+  }
+  if (e.key !== "r" || e.metaKey || e.ctrlKey || e.altKey) return;
+  const tag = document.activeElement?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA") return;
+  e.preventDefault();
+  loadBoard();
+});
+
+window.addEventListener("popstate", () => {
+  const slug = slugFromHash();
+  if (slug) openSpec(slug, { updateHash: false });
+  else closeSpec({ updateHash: false });
+});
 
 loadBoard();

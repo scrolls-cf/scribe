@@ -17,10 +17,10 @@
       document.head.appendChild(base);
     })();
   </script>
-  <link rel="icon" href="assets/logo.png" type="image/png" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23242933'/%3E%3Ctext x='16' y='22' font-family='system-ui,sans-serif' font-size='14' font-weight='700' fill='%237dd3fc' text-anchor='middle'%3Es%3C/text%3E%3C/svg%3E" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;800&display=swap" />
   <link rel="stylesheet" href="assets/tokens.css" />
   <link rel="stylesheet" href="assets/site.css" />
 </head>
@@ -29,45 +29,60 @@
   <a class="skip-link" href="#board-main">Skip to board</a>
   <header class="scribe-header">
     <a class="scribe-brand" href=".">
-      <img src="assets/logo.png" alt="" width="32" height="32" decoding="async" />
-      <div>
-        <h1 class="scribe-title">scribe</h1>
-        <span class="scribe-subtitle">devscrolls</span>
-      </div>
+      <h1 class="scribe-wordmark">scribe</h1>
+      <span class="scribe-subtitle">devscrolls</span>
     </a>
   </header>
 
   <p id="board-error" class="banner-error" role="alert" hidden></p>
 
   <main class="scribe-main" id="board-main" aria-busy="true">
-    <section class="scribe-panel" aria-labelledby="specs-heading">
+    <section class="scribe-panel scribe-panel--specs" aria-labelledby="specs-heading">
       <h2 id="specs-heading">Active specs <span id="spec-count" class="panel-count" hidden></span></h2>
       <p id="spec-loading" class="panel-status" role="status" aria-live="polite">Loading specs…</p>
       <ul id="spec-list" class="spec-list" role="list" hidden></ul>
-      <div id="spec-empty" class="panel-empty panel-empty--calm" hidden>
-        <p class="panel-empty-lead">Nothing in flight.</p>
-        <p class="panel-empty-hint">The board only shows active work. POST a spec to <code>v1/projects/default/specs</code> or open <a href="v1/projects/default/specs" target="_blank" rel="noopener noreferrer">Specs JSON</a>.</p>
+      <div id="spec-empty" class="panel-empty panel-empty--idle" hidden aria-live="polite">
+        <span aria-hidden="true">—</span>
+        <span class="sr-only">No active specs</span>
       </div>
     </section>
 
-    <aside class="scribe-panel" aria-labelledby="errors-heading">
+    <section
+      class="scribe-panel scribe-panel--detail"
+      id="spec-detail-panel"
+      hidden
+      aria-labelledby="spec-detail-title"
+    >
+      <button type="button" class="detail-close" id="spec-detail-close">Close spec</button>
+      <p id="spec-detail-loading" class="panel-status" role="status" aria-live="polite" hidden>Loading spec…</p>
+      <article id="spec-detail" class="spec-detail-inline" hidden>
+        <header class="spec-detail-head">
+          <h2 class="spec-detail-title" id="spec-detail-title">
+            <span id="spec-title"></span>
+          </h2>
+          <p class="spec-slug" id="spec-slug"></p>
+          <p id="spec-done-notice" class="spec-done-notice" hidden>Completed plan. Not on the active board.</p>
+          <div class="spec-toolbar spec-toolbar--read" id="spec-toolbar"></div>
+        </header>
+        <section aria-labelledby="phases-heading">
+          <h3 id="phases-heading" class="spec-section-label">Phases</h3>
+          <p id="phase-empty" class="panel-empty panel-empty-inline" hidden aria-live="polite">—</p>
+          <ol id="phase-list" class="phase-list" role="list"></ol>
+        </section>
+        <div id="spec-body" class="prose" aria-label="Spec body"></div>
+      </article>
+    </section>
+
+    <aside class="scribe-panel scribe-panel--errors" aria-labelledby="errors-heading">
       <h2 id="errors-heading">Errors board</h2>
       <p id="error-loading" class="panel-status" role="status" aria-live="polite">Loading errors…</p>
       <ul id="error-list" class="error-list" role="list" hidden></ul>
-      <div id="error-empty" class="panel-empty panel-empty--calm" hidden>
-        <p class="panel-empty-lead">Board is clear.</p>
-        <p class="panel-empty-hint">When CI or an agent reports a failure, it appears here until you mark it resolved.</p>
+      <div id="error-empty" class="panel-empty panel-empty--clear" hidden aria-live="polite">
+        Clear
+        <span class="sr-only">No unresolved errors</span>
       </div>
     </aside>
   </main>
-
-  <footer class="scribe-footer">
-    <code id="site-host"></code>
-    <nav aria-label="Utility">
-      <a href="health">View health check</a>
-      <a href="v1/projects/default/specs" target="_blank" rel="noopener noreferrer">Open specs JSON</a>
-    </nav>
-  </footer>
 
   <script type="module" src="assets/board.js"></script>
 </body>

@@ -52,7 +52,7 @@
   --radius-lg: 0.875rem;
 
   --max-width: 52rem;
-  --page-padding: clamp(var(--space-6), 4vw, var(--space-10));
+  --page-padding: clamp(var(--space-4), 3vw, var(--space-8));
 
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --duration-enter: 0.45s;

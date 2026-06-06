@@ -2,7 +2,13 @@
 
 ## Overview
 
-Operational planning dashboard on the devscrolls dark slate base. Two-column layout on wide viewports: active specs (primary) and errors board (secondary). Spec detail expands inline or on a dedicated route. No marketing chrome.
+Operational planning dashboard on the devscrolls dark slate base. Full-width board: active specs (primary), inline spec detail (opens on select), errors rail (secondary). No marketing chrome.
+
+## Layout
+
+- **Default:** specs column + errors rail (edge to edge).
+- **Detail open:** compact spec list | inline plan detail | errors rail.
+- **Routing:** hash `#specs/{slug}` for drill-down without navigation; `/specs/{slug}` redirects to board hash.
 
 ## Colors
 
@@ -33,12 +39,12 @@ Scale: page title `clamp(1.5rem, 3vw, 2rem)`, spec titles `1.125rem`, body `1rem
 
 ## Components
 
-- **App shell:** header (scribe + devscrolls mark), two-column main, footer utilities
-- **Spec card:** title, slug, status pill, phase progress bar, lock badge (agent id or "open")
+- **App shell:** header (scribe wordmark + devscrolls), full-width board grid
+- **Spec row:** title, slug, status pill, phase progress bar, lock badge (agent id or Open)
+- **Inline plan detail:** phases, markdown body, read-only toolbar (status, updated, lock)
 - **Phase list:** ordered steps with per-phase status (pending / active / done)
 - **Errors panel:** scrollable list of unresolved errors with source, message, age
-- **Spec detail:** markdown body, phase controls, lock acquire/release, status transitions
-- **Empty states:** em dash for zero specs or zero errors
+- **Empty states:** `—` for zero active specs; **Clear** for zero unresolved errors
 
 ## Status language
 
@@ -47,7 +53,7 @@ Scale: page title `clamp(1.5rem, 3vw, 2rem)`, spec titles `1.125rem`, body `1rem
 | `ready` | Ready | Spec saved, not started |
 | `in_progress` | In progress | Active work |
 | `blocked` | Blocked | Waiting on dependency or error |
-| `done` | Done | Hidden from board |
+| `done` | Done | Hidden from board; retrievable by slug or `?all=true` |
 
 Locks: **Held by {agent}** or **Open**.
 
