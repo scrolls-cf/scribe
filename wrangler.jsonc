@@ -1,0 +1,12 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "scribe",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-06-05",
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"observability": { "enabled": true },
+	"durable_objects": {
+		"bindings": [{ "name": "SCRIBE", "class_name": "Scribe" }]
+	},
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Scribe"] }]
+}

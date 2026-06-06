@@ -1,0 +1,17 @@
+{
+  "name": "scribe",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "dev": "wrangler dev",
+    "cf-typegen": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250605.0",
+    "typescript": "^5.5.2",
+    "wrangler": "4.98.0"
+  }
+}
