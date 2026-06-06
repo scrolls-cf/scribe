@@ -17,14 +17,14 @@ devNote();
 
 const SPEC_LOADING = [
   "Reading active specs from the edge store…",
-  "Checking lock state on in-flight plans…",
+  "Checking lock state on in-flight specs…",
 ];
 const ERROR_LOADING = [
   "Loading unresolved errors…",
   "Scanning the errors board…",
 ];
 const DETAIL_LOADING = [
-  "Loading plan and phases…",
+  "Loading spec draft…",
   "Fetching spec from scribe…",
 ];
 
@@ -118,11 +118,6 @@ function renderSpecs(specs) {
     btn.setAttribute("aria-label", specLinkLabel(spec));
     btn.setAttribute("aria-pressed", spec.slug === activeSlug ? "true" : "false");
 
-    const pct =
-      spec.phases_total > 0
-        ? spec.phases_done / spec.phases_total
-        : 0;
-
     const lockText = lockSummary(spec.lock);
     const lockOpen = !spec.lock;
 
@@ -136,11 +131,7 @@ function renderSpecs(specs) {
       </div>
       <div class="spec-meta">
         <span class="lock-badge" ${lockOpen ? 'data-open="true"' : ""}>${escape(lockText)}</span>
-        <div class="phase-bar${pct >= 1 ? " phase-bar--full" : ""}" role="img" aria-label="${spec.phases_done} of ${spec.phases_total} phases done">
-          <span style="--progress: ${pct}"></span>
-        </div>
-        <span>${spec.phases_done}/${spec.phases_total} phases</span>
-        <span>${formatAge(spec.updated_at)}</span>
+        <span class="spec-meta-age">${formatAge(spec.updated_at)}</span>
       </div>
     `;
 

@@ -6,7 +6,7 @@ product
 
 ## Users
 
-devscrolls developers and composer agents operating behind Cloudflare Access on the scrollsmatrix gateway. They check what design specs are in flight, which agent holds a lock, phase progress, and org-wide errors that still need attention.
+devscrolls developers and composer agents operating behind Cloudflare Access on the scrollsmatrix gateway. They check what design specs are in flight, which agent holds a lock, and org-wide errors that still need attention.
 
 ## Product Purpose
 
@@ -27,7 +27,7 @@ Focused, operational, trustworthy. devscrolls family: minimal chrome, status you
 
 1. **Active work only** — the board shows specs that still need attention; done specs disappear.
 2. **One agent per spec** — locks are visible and enforceable; status reflects who holds the work.
-3. **Spec is the draft** — the markdown body is the source of truth; detail shows title, meta, and prose as written. Phase progress on board rows is optional agent metadata, not an implementation plan in the UI.
+3. **Spec is the draft** — the markdown body is the source of truth; detail shows title, meta, and prose as written. The board shows status and locks only; phases live in the API for agents, not in the human UI.
 4. **Errors are first-class** — unresolved org errors sit beside specs, not buried in logs.
 5. **devscrolls continuity** — same palette and type as scrollsmatrix; Scribe reads as part of the platform.
 
@@ -48,7 +48,7 @@ A **spec** is a rough draft (markdown body plus API metadata). It stays on the b
 | Active specs | `—` | Nothing in flight (no queued work, or all work completed) |
 | Errors board | `Clear` | No unresolved org failures; panel stays visible as a structural anchor |
 
-Empty states are not CTAs. Agents create specs, advance phases, resolve errors, and mark completion through the API.
+Empty states are not CTAs. Agents create specs, update status, resolve errors, and mark completion through the API.
 
 ## Accessibility & Inclusion
 
@@ -56,4 +56,4 @@ Standard best practices: semantic landmarks, visible focus, status not conveyed 
 
 ## Terminology
 
-Use **spec**, **phase**, **lock**, **errors board**. Brand name **devscrolls** (lowercase) when referring to the platform. Service name **scribe** (lowercase) for this Worker.
+Use **spec**, **lock**, **errors board**. Brand name **devscrolls** (lowercase) when referring to the platform. Service name **scribe** (lowercase) for this Worker. **Phase** and **plan** are agent API terms only; the dashboard says **spec**.

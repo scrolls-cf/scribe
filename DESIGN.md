@@ -40,9 +40,8 @@ Scale: page title `clamp(1.5rem, 3vw, 2rem)`, spec titles `1.125rem`, body `1rem
 ## Components
 
 - **App shell:** header (scribe wordmark + devscrolls), full-width board grid
-- **Spec row:** title, slug, status pill, optional phase progress bar, lock badge (agent id or Open)
+- **Spec row:** title, slug, status pill, lock badge (agent id or Open), updated age
 - **Inline spec detail:** sticky title row (status meta inline), readable markdown below
-- **Phase list:** board-row progress only (agent API metadata)
 - **Errors panel:** scrollable list of unresolved errors with source, message, age
 - **Empty states:** `—` for zero active specs; **Clear** for zero unresolved errors
 
@@ -63,4 +62,4 @@ Agent spec bodies are markdown (often pasted from DESIGN.md). The renderer strip
 
 ## Terminology
 
-**Spec**, **phase**, **errors board**. CSS prefixes: `scribe-`, `spec-`, `error-`. No **fleet**.
+**Spec**, **lock**, **errors board**. CSS prefixes: `scribe-`, `spec-`, `error-`. No **fleet**.
