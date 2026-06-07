@@ -51,6 +51,8 @@ A **spec** is a rough draft (markdown body plus API metadata). It stays on the b
 
 **Flow:** an agent claims a spec (lock) → uploads an implementation (`plan`) → agents update step/phase progress on that implementation. Locks on specs prevent double-pick; implementation locks are rare and shown only when set.
 
+**Active work count:** **1 spec = 1 active work** in the heading badge. Nested implementations do not increase the count. Detached groups (spec completed, implementation still in flight) count as one unit per completed spec slug.
+
 **Layout:** persistent work tree (left) lists specs and nested implementations; detail pane (center) is always visible with an empty state when nothing is selected; errors rail (right) appears only when unresolved failures exist.
 
 **Detached implementations:** when a parent spec is complete and off the board, its in-flight implementations appear under a muted **Spec completed · {slug}** group.
@@ -69,6 +71,18 @@ Empty states are not CTAs. Agents create specs, update status, resolve errors, a
 ## Accessibility & Inclusion
 
 Standard best practices: semantic landmarks, visible focus, status not conveyed by color alone, `prefers-reduced-motion` respected. Body text meets WCAG 2.1 AA contrast on devscrolls dark surfaces.
+
+## Deployed surface (canonical)
+
+| Item | Value |
+|------|--------|
+| Board URL | `https://scrollsmatrix.jvalamis.workers.dev/scribe/` |
+| Routing | scrollsmatrix `SCRIBE` service binding — scribe has `workers_dev: false` |
+| Auth | Cloudflare Access (`devscrolls.cloudflareaccess.com`) |
+
+**Agents:** `npm run scribe:snapshot` from agents repo (uses `cloudflared access login` or `CF_ACCESS_*` in `.env`). Impeccable critique targets this URL, not local-only assets.
+
+**Wrangler gateway (production bindings, no Access UI):** `cd worktrees/scrollsmatrix && npx wrangler dev --port 8790` → `http://127.0.0.1:8790/scribe/` hits the same deployed scribe worker via service binding.
 
 ## Terminology
 

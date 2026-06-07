@@ -83,6 +83,15 @@ function focusDetailOnMobile() {
   target.focus();
 }
 
+/** Active work units: one per on-board spec; detached orphan groups count once per completed spec slug. */
+function activeWorkUnitCount(specs, plans) {
+  const specSlugs = new Set(specs.map((s) => s.slug));
+  const orphanSlugs = new Set(
+    plans.filter((p) => !specSlugs.has(p.spec_slug)).map((p) => p.spec_slug || "unknown"),
+  );
+  return specs.length + orphanSlugs.size;
+}
+
 function specMatchesFilter(spec) {
   if (workFilter === "all") return true;
   if (workFilter === "locked") return !!spec.lock;
@@ -377,8 +386,7 @@ function renderWorkBoard(specs, plans) {
   cachedSpecs = specs;
   cachedPlans = plans;
 
-  const total = specs.length + plans.length;
-  syncWorkFilterControl(total);
+  syncWorkFilterControl(activeWorkUnitCount(specs, plans));
   const filtered = filterBoardData(specs, plans);
   specs = filtered.specs;
   plans = filtered.plans;
@@ -386,7 +394,7 @@ function renderWorkBoard(specs, plans) {
   const specSlugs = new Set(specs.map((s) => s.slug));
   const orphanPlans = plans.filter((p) => !specSlugs.has(p.spec_slug));
 
-  if (!specs.length && !plans.length) {
+  if (!specs.length && !orphanPlans.length) {
     workList.hidden = true;
     workEmpty.hidden = false;
     if (workCount) workCount.hidden = true;
@@ -398,9 +406,9 @@ function renderWorkBoard(specs, plans) {
   workList.hidden = false;
   if (workBoardHint) workBoardHint.hidden = false;
   if (workCount) {
-    const visibleTotal = specs.length + plans.length;
-    workCount.textContent = String(visibleTotal);
-    workCount.hidden = !visibleTotal;
+    const units = activeWorkUnitCount(specs, plans);
+    workCount.textContent = String(units);
+    workCount.hidden = !units;
   }
 
   for (const spec of specs) {
