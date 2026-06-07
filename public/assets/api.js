@@ -86,7 +86,7 @@ export function formatAge(iso) {
 export function statusLabel(status) {
   const map = {
     ready: "Ready",
-    in_progress: "Ready",
+    in_progress: "In progress",
     blocked: "Blocked",
     done: "Done",
   };

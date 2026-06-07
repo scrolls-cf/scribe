@@ -23,12 +23,12 @@ import { renderSpecDetail } from "./spec-view.js";
 devNote();
 
 const WORK_LOADING = [
-  "Reading active work from the edge store…",
-  "Checking locks and implementation progress…",
+  "Loading active work…",
+  "Fetching specs and implementations…",
 ];
 const DETAIL_LOADING = [
-  "Loading from scribe…",
-  "Fetching detail from the edge store…",
+  "Loading detail…",
+  "Fetching spec or implementation…",
 ];
 
 const workList = document.getElementById("work-list");
@@ -127,9 +127,9 @@ function syncWorkFilterControl(total) {
     workFilterSelect.className = "work-filter";
     workFilterSelect.setAttribute("aria-label", "Filter active work");
     workFilterSelect.innerHTML = `
-      <option value="all">All</option>
-      <option value="locked">Locked</option>
-      <option value="active">Ready / In progress</option>
+      <option value="all">Show all work</option>
+      <option value="locked">Locked only</option>
+      <option value="active">Ready or in progress</option>
     `;
     workFilterSelect.addEventListener("change", () => {
       workFilter = workFilterSelect.value;
@@ -161,7 +161,7 @@ function showBoardError(message, onRetry) {
   text.className = "banner-error-text";
   text.textContent = message;
   boardError.append(text);
-  if (onRetry) appendRetryButton(boardError, "Retry load", onRetry);
+  if (onRetry) appendRetryButton(boardError, "Try again", onRetry);
   boardError.hidden = false;
   boardError.setAttribute("aria-live", "assertive");
 }
@@ -590,8 +590,8 @@ async function loadBoard() {
     setLoading(workLoading, false);
     const msg =
       e instanceof TypeError
-        ? "Could not reach scribe. Check your connection and try again."
-        : e.message || "Could not load board";
+        ? "Could not reach scribe. Check the network, then try again."
+        : e.message || "Could not load the board";
     showBoardError(msg, () => loadBoard());
     if (workEmpty) workEmpty.hidden = true;
     if (workList) workList.hidden = true;

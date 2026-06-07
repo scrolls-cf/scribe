@@ -57,7 +57,7 @@ export function renderSpecDetail(root, spec) {
   if (bodyEl) {
     bodyEl.innerHTML = spec.body?.trim()
       ? renderMarkdown(spec.body)
-      : '<p class="prose-empty">No body yet.</p>';
+      : '<p class="prose-empty">This spec has no markdown body yet.</p>';
     hideDuplicateShellContent(bodyEl, spec);
   }
 

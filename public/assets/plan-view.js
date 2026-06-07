@@ -124,7 +124,7 @@ export function renderPlanDetail(root, plan) {
   if (bodyEl) {
     bodyEl.innerHTML = plan.body?.trim()
       ? renderMarkdown(plan.body)
-      : '<p class="prose-empty">No implementation body yet.</p>';
+      : '<p class="prose-empty">This implementation has no markdown body yet.</p>';
     hideDuplicateShellContent(bodyEl, plan);
   }
 
