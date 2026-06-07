@@ -74,15 +74,36 @@ export function renderPhaseSummary(container, phases) {
     marker.textContent =
       phase.status === "done" ? "✓" : phase.status === "active" ? "…" : "○";
 
+    const title = phase.title || `Phase ${phase.index}`;
+    const statusWord =
+      phase.status === "done" ? "Done" : phase.status === "active" ? "Active" : "Pending";
+
     const label = document.createElement("span");
     label.className = "plan-phase-label";
-    label.textContent = phase.title || `Phase ${phase.index}`;
+    label.textContent = title;
 
+    li.setAttribute("aria-label", `${title}, ${statusWord}`);
     li.append(marker, label);
     list.append(li);
   }
 
   container.append(list);
+}
+
+export function renderUserInstructions(root, plan) {
+  const section = root?.querySelector("#plan-user-instructions");
+  const bodyEl = root?.querySelector("#plan-user-instructions-body");
+  if (!section || !bodyEl) return;
+
+  const text = plan.user_instructions?.trim();
+  if (!text) {
+    section.hidden = true;
+    bodyEl.replaceChildren();
+    return;
+  }
+
+  section.hidden = false;
+  bodyEl.innerHTML = renderMarkdown(text);
 }
 
 export function renderPlanDetail(root, plan) {
@@ -98,6 +119,7 @@ export function renderPlanDetail(root, plan) {
 
   renderPhaseSummary(phaseSummary, plan.phases);
   renderPlanToolbar(toolbar, plan);
+  renderUserInstructions(root, plan);
 
   if (bodyEl) {
     bodyEl.innerHTML = plan.body?.trim()

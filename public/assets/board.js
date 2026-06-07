@@ -352,7 +352,7 @@ function createImplRow(plan, { nested = false } = {}) {
       ${activePhase}
       <span class="work-row-progress">
         <span class="plan-progress-label">${escape(planProgressLabel(plan))}</span>
-        <span class="plan-progress" role="presentation" style="--plan-progress: ${ratio / 100}">
+        <span class="plan-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${ratio}" aria-label="${escape(planProgressLabel(plan))}" style="--plan-progress: ${ratio / 100}">
           <span class="plan-progress-bar"></span>
         </span>
       </span>

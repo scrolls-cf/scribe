@@ -39,6 +39,8 @@
   --color-ink-secondary: oklch(0.72 0.022 250);
   --color-primary: oklch(0.823 0.075 209);
   --color-primary-dim: oklch(0.823 0.075 209 / 0.14);
+  --color-primary-highlight: oklch(0.823 0.075 209 / 0.06);
+  --color-primary-highlight-border: oklch(0.823 0.075 209 / 0.22);
   --color-secondary: oklch(0.686 0.091 245);
   --color-accent: oklch(0.699 0.144 290);
   --color-accent-dim: oklch(0.699 0.144 290 / 0.12);
