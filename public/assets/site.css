@@ -188,22 +188,24 @@ button:disabled {
   position: relative;
   z-index: 0;
   display: grid;
-  grid-template-columns: minmax(14rem, 22rem) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "tree";
   width: 100%;
   margin: 0;
   gap: 0;
-}
-
-.scribe-main:not([data-detail-open="true"]) {
-  grid-template-columns: minmax(0, 1fr);
 }
 
 .scribe-main:not([data-detail-open="true"]) .scribe-panel--detail {
   display: none;
 }
 
+.scribe-main:not([data-detail-open="true"]) .scribe-panel--tree {
+  border-right: none;
+}
+
 .scribe-main[data-detail-open="true"] {
-  grid-template-columns: minmax(11rem, 15rem) minmax(0, 1fr);
+  grid-template-columns: minmax(14rem, min(20rem, 26vw)) minmax(0, 1fr);
+  grid-template-areas: "tree detail";
 }
 
 @media (max-width: 768px) {
@@ -264,6 +266,7 @@ button:disabled {
 }
 
 .scribe-panel--tree {
+  grid-area: tree;
   border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
@@ -283,7 +286,9 @@ button:disabled {
 }
 
 .scribe-panel--detail {
+  grid-area: detail;
   width: 100%;
+  min-width: 0;
 }
 
 .scribe-panel h2 {
@@ -912,6 +917,7 @@ button:disabled {
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3) var(--space-6);
+  width: 100%;
 }
 
 .spec-detail-identity {
@@ -1081,7 +1087,8 @@ button:disabled {
 .prose {
   margin-top: var(--space-8);
   color: var(--color-ink);
-  max-width: 72ch;
+  max-width: none;
+  width: 100%;
   font-size: var(--text-sm);
   line-height: var(--leading-relaxed);
 }
@@ -1416,9 +1423,10 @@ button:disabled {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
   gap: var(--space-2);
+  width: 100%;
 }
 
 .plan-phase-item {
