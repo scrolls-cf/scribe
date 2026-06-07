@@ -1,9 +1,17 @@
 const PROJECT = "default";
 
+function routeAnchorIndex(path) {
+  const specIdx = path.indexOf("/specs/");
+  if (specIdx !== -1) return specIdx;
+  const planIdx = path.indexOf("/plans/");
+  if (planIdx !== -1) return planIdx;
+  return -1;
+}
+
 export function serviceRoot() {
   const path = window.location.pathname.replace(/\/$/, "") || "";
-  const specIdx = path.indexOf("/specs/");
-  if (specIdx !== -1) return path.slice(0, specIdx);
+  const anchor = routeAnchorIndex(path);
+  if (anchor !== -1) return path.slice(0, anchor);
   return path;
 }
 
@@ -14,6 +22,15 @@ export function specSlugFromPath(pathname = window.location.pathname) {
   const rest = path.slice(specAt + "/specs/".length);
   const slug = rest.split("/")[0];
   return slug ? decodeURIComponent(slug) : "";
+}
+
+export function planIdFromPath(pathname = window.location.pathname) {
+  const path = pathname.replace(/\/$/, "");
+  const planAt = path.indexOf("/plans/");
+  if (planAt === -1) return "";
+  const rest = path.slice(planAt + "/plans/".length);
+  const id = rest.split("/")[0];
+  return id ? decodeURIComponent(id) : "";
 }
 
 export function apiPath(segment) {
@@ -99,6 +116,43 @@ export function specLinkLabel(spec) {
     lockSummary(spec.lock),
     `Updated ${formatAge(spec.updated_at)}`,
   ].join(", ");
+}
+
+/** Board/detail status for plans (includes build progress). */
+export function planBoardStatus(plan) {
+  if (plan.status === "done") return "done";
+  if (plan.status === "blocked") return "blocked";
+  if (plan.completion_ratio > 0 && plan.completion_ratio < 1) return "in_progress";
+  return "ready";
+}
+
+export function planBoardStatusLabel(plan) {
+  return statusLabel(planBoardStatus(plan));
+}
+
+export function planProgressLabel(plan) {
+  if (plan.phases_total > 0) {
+    return `${plan.phases_done}/${plan.phases_total} phases`;
+  }
+  if (plan.tasks_total > 0) {
+    return `${plan.tasks_done}/${plan.tasks_total} tasks`;
+  }
+  return "No tasks yet";
+}
+
+export function planLinkLabel(plan) {
+  const parts = [
+    plan.title,
+    `for spec ${plan.spec_slug}`,
+    planBoardStatusLabel(plan),
+    planProgressLabel(plan),
+    lockSummary(plan.lock),
+    `Updated ${formatAge(plan.updated_at)}`,
+  ];
+  if (plan.active_phase?.title) {
+    parts.splice(3, 0, `Active: ${plan.active_phase.title}`);
+  }
+  return parts.join(", ");
 }
 
 /** Pull a spec slug from an error source path or message when possible. */

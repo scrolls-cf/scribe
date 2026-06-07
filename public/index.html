@@ -11,7 +11,9 @@
     (function () {
       var path = location.pathname.replace(/\/$/, "");
       var specAt = path.indexOf("/specs/");
-      var root = specAt >= 0 ? path.slice(0, specAt) : path;
+      var planAt = path.indexOf("/plans/");
+      var anchor = specAt >= 0 ? specAt : planAt >= 0 ? planAt : -1;
+      var root = anchor >= 0 ? path.slice(0, anchor) : path;
       var base = document.createElement("base");
       base.href = (root || "") + "/";
       document.head.appendChild(base);
@@ -32,18 +34,32 @@
       <h1 class="scribe-wordmark">scribe</h1>
       <span class="scribe-subtitle">devscrolls</span>
     </a>
+    <p class="scribe-kbd-hint" aria-hidden="true"><kbd>r</kbd> refresh · <kbd>Esc</kbd> close detail</p>
   </header>
 
   <p id="board-error" class="banner-error" role="alert" hidden></p>
 
   <main class="scribe-main" id="board-main" aria-busy="true" aria-keyshortcuts="r Escape">
     <section class="scribe-panel scribe-panel--specs" aria-labelledby="specs-heading">
-      <h2 id="specs-heading">Active specs <span id="spec-count" class="panel-count" hidden></span></h2>
-      <p id="spec-loading" class="panel-status" role="status" aria-live="polite">Loading specs…</p>
-      <ul id="spec-list" class="spec-list" role="list" hidden></ul>
-      <div id="spec-empty" class="panel-empty panel-empty--idle" hidden aria-live="polite">
-        <span aria-hidden="true">—</span>
-        <span class="sr-only">No active specs. Completed specs are hidden unless opened by slug.</span>
+      <div class="board-rail-specs">
+        <h2 id="specs-heading">Active specs <span id="spec-count" class="panel-count" hidden></span></h2>
+        <p id="spec-loading" class="panel-status" role="status" aria-live="polite">Loading specs…</p>
+        <ul id="spec-list" class="spec-list" role="list" hidden></ul>
+        <div id="spec-empty" class="panel-empty panel-empty--idle" hidden aria-live="polite">
+          <p class="panel-empty-lead" aria-hidden="true">—</p>
+          <p class="panel-empty-hint" aria-hidden="true">Nothing in flight. Completed specs open by slug.</p>
+          <span class="sr-only">No active specs. Completed specs are hidden unless opened by slug.</span>
+        </div>
+      </div>
+
+      <div class="board-rail-plans" id="board-rail-plans">
+        <h2 id="plans-heading" class="panel-subheading">Plans <span id="plan-count" class="panel-count" hidden></span></h2>
+        <p id="plan-loading" class="panel-status" role="status" aria-live="polite" hidden>Loading plans…</p>
+        <ul id="plan-list" class="spec-list plan-list" role="list" hidden></ul>
+        <div id="plan-empty" class="panel-empty panel-empty--idle" hidden aria-live="polite">
+          <p class="panel-empty-hint">No pushed plans yet. Run push-plan-to-scribe after a spec ships.</p>
+          <span class="sr-only">No active plans on the board.</span>
+        </div>
       </div>
     </section>
 
@@ -51,9 +67,10 @@
       class="scribe-panel scribe-panel--detail"
       id="spec-detail-panel"
       hidden
-      aria-labelledby="spec-detail-title"
+      aria-labelledby="detail-heading"
     >
-      <p id="spec-detail-loading" class="panel-status" role="status" aria-live="polite" hidden>Loading spec…</p>
+      <h2 id="detail-heading" class="sr-only">Detail</h2>
+      <p id="spec-detail-loading" class="panel-status" role="status" aria-live="polite" hidden>Loading…</p>
       <article id="spec-detail" class="spec-detail-inline" hidden>
         <header class="spec-detail-head">
           <div class="spec-detail-top">
@@ -67,7 +84,28 @@
           </div>
           <p id="spec-done-notice" class="spec-done-notice" hidden>Completed spec. Not on the active board.</p>
         </header>
+        <div id="spec-plans" class="spec-linked-plans" hidden>
+          <h3 class="spec-section-label">Implementation plans</h3>
+          <ul id="spec-plan-links" class="spec-plan-links" role="list"></ul>
+        </div>
         <div id="spec-body" class="prose"></div>
+      </article>
+      <article id="plan-detail" class="plan-detail-inline" hidden>
+        <header class="spec-detail-head">
+          <div class="spec-detail-top">
+            <div class="spec-detail-identity">
+              <h2 class="spec-detail-title" id="plan-detail-title">
+                <span id="plan-title"></span>
+              </h2>
+              <p class="spec-slug" id="plan-id"></p>
+              <p class="plan-spec-ref">Spec: <span id="plan-spec-link"></span></p>
+            </div>
+            <div class="spec-toolbar spec-toolbar--read" id="plan-toolbar"></div>
+          </div>
+          <p id="plan-done-notice" class="spec-done-notice" hidden>Completed plan. Not on the active board.</p>
+          <div id="plan-phase-summary" class="plan-phase-summary" hidden></div>
+        </header>
+        <div id="plan-body" class="prose"></div>
       </article>
     </section>
 

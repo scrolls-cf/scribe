@@ -1,0 +1,10 @@
+(function () {
+  var path = location.pathname.replace(/\/$/, "");
+  var planAt = path.indexOf("/plans/");
+  if (planAt < 0) return;
+  var id = decodeURIComponent(path.slice(planAt + "/plans/".length).split("/")[0] || "");
+  var root = path.slice(0, planAt) || "";
+  var target = (root || "") + "/";
+  if (id) target += "#plans/" + encodeURIComponent(id);
+  location.replace(target);
+})();

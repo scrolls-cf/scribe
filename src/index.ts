@@ -72,6 +72,11 @@ function assetRequest(request: Request): Request {
 		url.pathname = "/spec/";
 		return new Request(url.toString(), request);
 	}
+	const planPage = url.pathname.match(/^\/plans\/([^/]+)\/?$/);
+	if (planPage && !request.headers.get("accept")?.includes("application/json")) {
+		url.pathname = "/plan/";
+		return new Request(url.toString(), request);
+	}
 	return request;
 }
 
