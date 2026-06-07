@@ -27,7 +27,7 @@ Focused, operational, trustworthy. devscrolls family: minimal chrome, status you
 
 1. **Active work only** — the board shows specs that still need attention; done specs disappear.
 2. **One agent per spec** — locks are visible and enforceable; status reflects who holds the work.
-3. **Spec is the draft** — the markdown body is the source of truth; detail shows title, meta, and prose as written. The board shows status and locks only; phases live in the API for agents, not in the human UI.
+3. **Spec is the draft** — the markdown body is the source of truth; detail shows title, meta, and prose as written. Spec rows on the board show status and locks only — no progress. Step and phase progress belong to implementations only.
 4. **Errors are first-class** — unresolved org errors sit beside specs, not buried in logs.
 5. **devscrolls continuity** — same palette and type as scrollsmatrix; Scribe reads as part of the platform.
 
@@ -42,11 +42,26 @@ Focused, operational, trustworthy. devscrolls family: minimal chrome, status you
 
 A **spec** is a rough draft (markdown body plus API metadata). It stays on the board until an agent sets status to `done`. Humans never archive or resolve from the UI; they read active work and drill into detail. A direct link (`#specs/{slug}`) still loads a completed record for read-only review.
 
+## Board semantics
+
+| Concept | API term | Human label | On the board |
+|---------|----------|-------------|--------------|
+| Feature draft | `spec` | Spec | Title, slug, lock, status, age — **no progress** |
+| Execution plan | `plan` | Implementation | Nested under parent spec; progress bar and active step only here |
+
+**Flow:** an agent claims a spec (lock) → uploads an implementation (`plan`) → agents update step/phase progress on that implementation. Locks on specs prevent double-pick; implementation locks are rare and shown only when set.
+
+**Layout:** persistent work tree (left) lists specs and nested implementations; detail pane (center) is always visible with an empty state when nothing is selected; errors rail (right) appears only when unresolved failures exist.
+
+**Detached implementations:** when a parent spec is complete and off the board, its in-flight implementations appear under a muted **Spec completed · {slug}** group.
+
+**Terminology:** dashboard section **Active work**; child rows labeled **Implementation** in the tree. API fields `plan` and `phase` remain agent vocabulary — not used in human headings.
+
 ## Empty board semantics
 
 | Panel | Empty display | Meaning |
 |-------|---------------|---------|
-| Active specs | `—` | Nothing in flight (no queued work, or all work completed) |
+| Active work | `—` | Nothing in flight (no queued work, or all work completed) |
 | Errors board | Hidden | No unresolved org failures; the rail appears only when errors exist |
 
 Empty states are not CTAs. Agents create specs, update status, resolve errors, and mark completion through the API.
@@ -57,4 +72,4 @@ Standard best practices: semantic landmarks, visible focus, status not conveyed 
 
 ## Terminology
 
-Use **spec**, **lock**, **errors board**. Brand name **devscrolls** (lowercase) when referring to the platform. Service name **scribe** (lowercase) for this Worker. **Phase** and **plan** are agent API terms only; the dashboard says **spec**.
+Use **spec**, **implementation**, **lock**, **errors board**, **active work**. Brand name **devscrolls** (lowercase) when referring to the platform. Service name **scribe** (lowercase) for this Worker. **Phase** and **plan** are agent API terms only; the dashboard says **implementation** for child work rows.

@@ -36,11 +36,12 @@ export function renderToolbar(toolbar, spec) {
   updated.textContent = `Updated ${formatAge(spec.updated_at)}`;
   toolbar.append(updated);
 
-  const lock = document.createElement("span");
-  lock.className = "lock-badge";
-  if (!spec.lock) lock.dataset.open = "true";
-  lock.textContent = lockSummary(spec.lock);
-  toolbar.append(lock);
+  if (spec.lock) {
+    const lock = document.createElement("span");
+    lock.className = "lock-badge";
+    lock.textContent = lockSummary(spec.lock);
+    toolbar.append(lock);
+  }
 }
 
 export function renderSpecDetail(root, spec) {

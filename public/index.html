@@ -31,34 +31,34 @@
       <h1 class="scribe-wordmark">scribe</h1>
       <span class="scribe-subtitle">devscrolls</span>
     </a>
-    <p class="scribe-kbd-hint" aria-hidden="true"><kbd>r</kbd> refresh · <kbd>Esc</kbd> close detail</p>
-    <span class="sr-only">Keyboard shortcuts: R refreshes the board; Escape closes detail view.</span>
+    <p class="scribe-kbd-hint" aria-hidden="true"><kbd>r</kbd> refresh · <kbd>Esc</kbd> or click row again to close</p>
+    <span class="sr-only">Keyboard shortcuts: R refreshes the board; Escape or selecting the same row again closes detail.</span>
   </header>
 
   <p id="board-error" class="banner-error" role="alert" hidden></p>
 
   <main class="scribe-main" id="board-main" aria-busy="true" aria-keyshortcuts="r Escape">
-    <section class="scribe-panel scribe-panel--specs" aria-labelledby="specs-heading">
+    <section class="scribe-panel scribe-panel--tree" aria-labelledby="work-heading">
       <div class="board-rail-work">
-        <h2 id="specs-heading">Active specs <span id="spec-count" class="panel-count" hidden></span></h2>
-        <p id="spec-loading" class="panel-status" role="status" aria-live="polite">Loading board…</p>
-        <ul id="spec-list" class="work-list" role="list" hidden></ul>
-        <div id="spec-empty" class="panel-empty panel-empty--idle" hidden aria-live="polite">
+        <h2 id="work-heading">Active work <span id="work-count" class="panel-count" hidden></span></h2>
+        <p id="work-board-hint" class="work-board-hint" hidden>Specs are feature drafts. Indented rows are implementations with step progress.</p>
+        <p id="work-loading" class="panel-status" role="status" aria-live="polite">Loading board…</p>
+        <ul id="work-list" class="work-list" role="list" hidden></ul>
+        <div id="work-empty" class="panel-empty panel-empty--idle" hidden aria-live="polite">
           <p class="panel-empty-lead" aria-hidden="true">—</p>
-          <p class="panel-empty-hint" aria-hidden="true">Nothing in flight. Completed specs open by slug.</p>
-          <span class="sr-only">No active specs. Completed specs are hidden unless opened by slug.</span>
+          <p class="panel-empty-hint">Nothing in flight. Completed specs open by slug.</p>
         </div>
       </div>
     </section>
 
-    <section
-      class="scribe-panel scribe-panel--detail"
-      id="spec-detail-panel"
-      hidden
-      aria-labelledby="detail-heading"
-    >
+    <section class="scribe-panel scribe-panel--detail" id="detail-panel" aria-labelledby="detail-heading">
       <h2 id="detail-heading" class="sr-only">Detail</h2>
-      <p id="spec-detail-loading" class="panel-status" role="status" aria-live="polite" hidden>Loading…</p>
+      <div id="detail-empty" class="detail-empty">
+        <p class="detail-empty-lead">Select work from the list</p>
+        <p class="detail-empty-hint">Open a spec draft or implementation to read it here. Select the same row again to close.</p>
+      </div>
+      <p id="detail-loading" class="panel-status" role="status" aria-live="polite" hidden>Loading…</p>
+      <nav id="detail-breadcrumb" class="detail-breadcrumb" aria-label="Location" hidden></nav>
       <article id="spec-detail" class="spec-detail-inline" hidden>
         <header class="spec-detail-head">
           <div class="spec-detail-top">
@@ -72,10 +72,6 @@
           </div>
           <p id="spec-done-notice" class="spec-done-notice" hidden>Completed spec. Not on the active board.</p>
         </header>
-        <div id="spec-plans" class="spec-linked-plans" hidden>
-          <h3 class="spec-section-label">Implementation plans</h3>
-          <ul id="spec-plan-links" class="spec-plan-links" role="list"></ul>
-        </div>
         <div id="spec-body" class="prose"></div>
       </article>
       <article id="plan-detail" class="plan-detail-inline" hidden>
@@ -85,12 +81,10 @@
               <h2 class="spec-detail-title" id="plan-detail-title">
                 <span id="plan-title"></span>
               </h2>
-              <p class="spec-slug" id="plan-id"></p>
-              <p class="plan-spec-ref">Spec: <span id="plan-spec-link"></span></p>
             </div>
             <div class="spec-toolbar spec-toolbar--read" id="plan-toolbar"></div>
           </div>
-          <p id="plan-done-notice" class="spec-done-notice" hidden>Completed plan. Not on the active board.</p>
+          <p id="plan-done-notice" class="spec-done-notice" hidden>Completed implementation. Not on the active board.</p>
           <div id="plan-phase-summary" class="plan-phase-summary" hidden></div>
         </header>
         <div id="plan-body" class="prose"></div>

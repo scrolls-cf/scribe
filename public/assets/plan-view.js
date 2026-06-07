@@ -42,11 +42,12 @@ export function renderPlanToolbar(toolbar, plan) {
   updated.textContent = `Updated ${formatAge(plan.updated_at)}`;
   toolbar.append(updated);
 
-  const lock = document.createElement("span");
-  lock.className = "lock-badge";
-  if (!plan.lock) lock.dataset.open = "true";
-  lock.textContent = lockSummary(plan.lock);
-  toolbar.append(lock);
+  if (plan.lock) {
+    const lock = document.createElement("span");
+    lock.className = "lock-badge";
+    lock.textContent = lockSummary(plan.lock);
+    toolbar.append(lock);
+  }
 }
 
 export function renderPhaseSummary(container, phases) {
@@ -84,36 +85,16 @@ export function renderPhaseSummary(container, phases) {
   container.append(list);
 }
 
-export function renderPlanDetail(root, plan, { onOpenSpec } = {}) {
+export function renderPlanDetail(root, plan) {
   if (!root || !plan) return;
 
   const titleEl = root.querySelector("#plan-title");
-  const idEl = root.querySelector("#plan-id");
-  const specLink = root.querySelector("#plan-spec-link");
   const toolbar = root.querySelector("#plan-toolbar");
   const phaseSummary = root.querySelector("#plan-phase-summary");
   const bodyEl = root.querySelector("#plan-body");
   const doneNotice = root.querySelector("#plan-done-notice");
 
   if (titleEl) titleEl.textContent = plan.title;
-  if (idEl) idEl.textContent = plan.id;
-
-  if (specLink) {
-    specLink.replaceChildren();
-    if (plan.spec_slug) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "plan-spec-link";
-      btn.textContent = plan.spec_slug;
-      if (typeof onOpenSpec === "function") {
-        btn.addEventListener("click", () => onOpenSpec(plan.spec_slug));
-      }
-      specLink.append(btn);
-      specLink.hidden = false;
-    } else {
-      specLink.hidden = true;
-    }
-  }
 
   renderPhaseSummary(phaseSummary, plan.phases);
   renderPlanToolbar(toolbar, plan);
@@ -121,7 +102,7 @@ export function renderPlanDetail(root, plan, { onOpenSpec } = {}) {
   if (bodyEl) {
     bodyEl.innerHTML = plan.body?.trim()
       ? renderMarkdown(plan.body)
-      : '<p class="prose-empty">No plan body yet.</p>';
+      : '<p class="prose-empty">No implementation body yet.</p>';
     hideDuplicateShellContent(bodyEl, plan);
   }
 
