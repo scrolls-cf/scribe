@@ -52,7 +52,7 @@ A **spec** is a rough draft (markdown body plus API metadata). It stays on the b
 
 **Active work count:** **1 spec = 1 active work** in the heading badge. Nested implementations do not increase the count. Detached groups (spec completed, implementation still in flight) count as one unit per completed spec slug.
 
-**Layout:** persistent work tree (left) lists specs and nested implementations; detail pane (center) opens when a row is selected. Tree-first on desktop until selection.
+**Layout:** persistent work tree (left) lists specs and nested implementations; detail pane opens when a row is selected and **uses the full remaining viewport width** (no dead column on the right). Tree-first on desktop until selection.
 
 **Detached implementations:** when a parent spec is complete and off the board, its in-flight implementations appear under a muted **Spec completed · {slug}** group.
 

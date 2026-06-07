@@ -7,7 +7,7 @@ Operational planning dashboard on the devscrolls dark slate base. Master/detail 
 ## Layout
 
 - **Default:** full-width work tree until a row is selected.
-- **Detail open (desktop/tablet ≥769px):** compact work tree | detail content.
+- **Detail open (desktop/tablet ≥769px):** compact work tree | detail content fills remaining width (prose is not capped at 72ch in the reader).
 - **Narrow (≤768px):** work tree on top, detail below; when detail is open the tree caps at ~38vh and scrolls so implementations stay reachable above the reader.
 - **Routing:** hash `#specs/{slug}` or `#plans/{id}` for drill-down without navigation; `/specs/{slug}` redirects to board hash.
 

@@ -283,7 +283,7 @@ button:disabled {
 }
 
 .scribe-panel--detail {
-  border-right: 1px solid var(--color-border);
+  width: 100%;
 }
 
 .scribe-panel h2 {
@@ -945,8 +945,14 @@ button:disabled {
 .spec-detail-inline .prose,
 .plan-detail-inline .prose {
   margin-top: 0;
-  max-width: min(72ch, 100%);
+  max-width: none;
+  width: 100%;
   min-width: 0;
+}
+
+.scribe-panel--detail .prose {
+  max-width: none;
+  width: 100%;
 }
 
 .scribe-panel--detail .prose :is(p, li, dd, blockquote, td, th) {
@@ -963,7 +969,8 @@ button:disabled {
   border: 1px solid var(--color-border);
   font-size: var(--text-xs);
   line-height: 1.55;
-  max-width: 70ch;
+  max-width: none;
+  width: 100%;
 }
 
 .prose-spec-key {
@@ -1482,6 +1489,8 @@ button:disabled {
   border: 1px solid oklch(0.823 0.075 209 / 0.22);
   border-radius: var(--radius-md);
   background: oklch(0.823 0.075 209 / 0.06);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .plan-user-instructions-title {
