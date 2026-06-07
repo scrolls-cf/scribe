@@ -202,31 +202,13 @@ button:disabled {
   display: none;
 }
 
-.scribe-main[data-errors-visible="true"]:not([data-detail-open="true"]) {
-  grid-template-columns: minmax(0, 1fr) minmax(12rem, 16rem);
-}
-
-.scribe-main[data-errors-visible="true"]:not([data-detail-open="true"]) .scribe-panel--detail {
-  display: none;
-}
-
-.scribe-main[data-errors-visible="true"] {
-  grid-template-columns: minmax(14rem, 20rem) minmax(0, 1fr) minmax(12rem, 16rem);
-}
-
 .scribe-main[data-detail-open="true"] {
   grid-template-columns: minmax(11rem, 15rem) minmax(0, 1fr);
 }
 
-.scribe-main[data-detail-open="true"][data-errors-visible="true"] {
-  grid-template-columns: minmax(11rem, 14rem) minmax(0, 1fr) minmax(12rem, 16rem);
-}
-
 @media (max-width: 768px) {
   .scribe-main,
-  .scribe-main[data-detail-open="true"],
-  .scribe-main[data-errors-visible="true"],
-  .scribe-main[data-detail-open="true"][data-errors-visible="true"] {
+  .scribe-main[data-detail-open="true"] {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
     grid-template-areas:
@@ -243,21 +225,6 @@ button:disabled {
     display: none;
   }
 
-  .scribe-main[data-errors-visible="true"]:not([data-detail-open="true"]) {
-    grid-template-rows: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "tree"
-      "errors";
-  }
-
-  .scribe-main[data-errors-visible="true"] {
-    grid-template-rows: auto minmax(0, 1fr) auto;
-    grid-template-areas:
-      "tree"
-      "detail"
-      "errors";
-  }
-
   .scribe-panel--tree {
     grid-area: tree;
     border-right: none;
@@ -268,11 +235,6 @@ button:disabled {
     grid-area: detail;
     min-height: 0;
     border-right: none;
-  }
-
-  .scribe-panel--errors {
-    grid-area: errors;
-    border-top: 1px solid var(--color-border);
   }
 
   .scribe-main[data-detail-open="true"] .scribe-panel--tree {
@@ -322,10 +284,6 @@ button:disabled {
 
 .scribe-panel--detail {
   border-right: 1px solid var(--color-border);
-}
-
-.scribe-panel--errors {
-  /* right rail */
 }
 
 .scribe-panel h2 {
@@ -853,72 +811,6 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
-.error-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  border-top: 1px solid var(--color-border);
-}
-
-.error-item {
-  padding: var(--space-3) 0;
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid color-mix(in oklch, var(--color-border) 80%, var(--color-error) 20%);
-  border-radius: 0;
-}
-
-.error-item p {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--color-ink);
-  overflow-wrap: anywhere;
-}
-
-.error-source {
-  margin-top: var(--space-2);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--color-ink-secondary);
-  overflow-wrap: anywhere;
-}
-
-.error-age {
-  margin-top: var(--space-1);
-  font-size: var(--text-xs);
-  color: var(--color-ink-secondary);
-}
-
-.error-actions {
-  margin-top: var(--space-3);
-}
-
-.error-spec-link {
-  display: inline-flex;
-  align-items: center;
-  min-height: 2.75rem;
-  padding: 0.5rem 0;
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-primary);
-  background: none;
-  border: none;
-  cursor: pointer;
-}
-
-.error-spec-link:hover {
-  color: var(--color-accent);
-}
-
-.error-spec-link:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-  border-radius: 2px;
-}
-
 .btn {
   display: inline-flex;
   align-items: center;
@@ -998,10 +890,6 @@ button:disabled {
 }
 
 /* Spec detail */
-
-.error-item--related {
-  background: color-mix(in oklch, var(--color-error) 6%, transparent);
-}
 
 .spec-detail-inline {
   padding: 0;
@@ -1444,10 +1332,6 @@ button:disabled {
   transform: translate(-50%, 0);
 }
 
-.error-item.is-dismissing {
-  animation: dismiss-out 0.22s var(--ease-out) forwards;
-}
-
 @keyframes dismiss-out {
   to {
     opacity: 0;
@@ -1571,11 +1455,6 @@ button:disabled {
 
   .scribe-toast {
     transition: none;
-  }
-
-  .error-item.is-dismissing {
-    animation: none;
-    opacity: 0;
   }
 
   .btn:active:not(:disabled) {

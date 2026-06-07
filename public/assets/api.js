@@ -106,7 +106,8 @@ export function specBoardStatusLabel(spec) {
 
 export function lockSummary(lock) {
   if (!lock) return "Open";
-  return `Held by ${lock.agent_id}`;
+  const who = lock.holder_kind === "user" ? lock.agent_id : lock.agent_id;
+  return lock.holder_kind === "user" ? `Held by ${who}` : `Held by agent ${who}`;
 }
 
 /** Short lock label for tree rows (full text lives in detail toolbar + aria-label). */
@@ -163,13 +164,3 @@ export function planLinkLabel(plan) {
   return parts.join(", ");
 }
 
-/** Pull a spec slug from an error source path or message when possible. */
-export function specSlugFromErrorSource(source, knownSlugs = []) {
-  if (!source) return "";
-  const pathMatch = String(source).match(/\/specs\/([a-z0-9-]+)/);
-  if (pathMatch) return pathMatch[1];
-  for (const slug of knownSlugs) {
-    if (source.includes(slug)) return slug;
-  }
-  return "";
-}

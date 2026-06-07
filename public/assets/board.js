@@ -9,7 +9,6 @@ import {
   planLinkLabel,
   planProgressLabel,
   specLinkLabel,
-  specSlugFromErrorSource,
   specSlugFromPath,
   specBoardStatus,
   specBoardStatusLabel,
@@ -35,8 +34,6 @@ const DETAIL_LOADING = [
 const workList = document.getElementById("work-list");
 const workEmpty = document.getElementById("work-empty");
 const workLoading = document.getElementById("work-loading");
-const errorsPanel = document.getElementById("errors-panel");
-const errorList = document.getElementById("error-list");
 const boardError = document.getElementById("board-error");
 const boardMain = document.getElementById("board-main");
 const workCount = document.getElementById("work-count");
@@ -48,7 +45,6 @@ const detailLoading = document.getElementById("detail-loading");
 const detailBreadcrumb = document.getElementById("detail-breadcrumb");
 const specDetailRoot = document.getElementById("spec-detail");
 const planDetailRoot = document.getElementById("plan-detail");
-const errorsLive = document.getElementById("errors-live");
 
 const WORK_FILTER_THRESHOLD = 8;
 
@@ -56,7 +52,6 @@ let activeSlug = null;
 let activePlanId = null;
 let cachedSpecs = [];
 let cachedPlans = [];
-let cachedErrors = [];
 let lastFocusedButton = null;
 let workFilter = "all";
 let workFilterSelect = null;
@@ -195,24 +190,6 @@ function hideBoardError() {
 function setLoading(panel, loading) {
   if (!panel) return;
   panel.hidden = !loading;
-}
-
-function setErrorsPanelVisible(visible) {
-  if (errorsPanel) errorsPanel.hidden = !visible;
-  if (!boardMain) return;
-  if (visible) boardMain.dataset.errorsVisible = "true";
-  else {
-    delete boardMain.dataset.errorsVisible;
-    if (errorsLive) errorsLive.textContent = "";
-  }
-}
-
-function announceErrors(count) {
-  if (!errorsLive) return;
-  errorsLive.textContent =
-    count > 0
-      ? `${count} unresolved error${count === 1 ? "" : "s"} on the errors board`
-      : "";
 }
 
 function escape(text) {
@@ -474,70 +451,6 @@ function renderWorkBoard(specs, plans) {
   }
 }
 
-function renderErrors(errors) {
-  if (!errorList) return;
-  errorList.replaceChildren();
-  cachedErrors = errors;
-
-  if (!errors.length) {
-    errorList.hidden = true;
-    setErrorsPanelVisible(false);
-    return;
-  }
-
-  setErrorsPanelVisible(true);
-  errorList.hidden = false;
-  announceErrors(errors.length);
-
-  const knownSlugs = cachedSpecs.map((spec) => spec.slug);
-
-  for (const err of errors) {
-    const li = document.createElement("li");
-    li.className = "error-item";
-
-    const message = document.createElement("p");
-    message.textContent = err.message;
-    li.append(message);
-
-    const source = document.createElement("div");
-    source.className = "error-source";
-    source.textContent = err.source || "";
-    li.append(source);
-
-    const age = document.createElement("div");
-    age.className = "error-age";
-    age.textContent = formatAge(err.created_at);
-    li.append(age);
-
-    const relatedSlug = specSlugFromErrorSource(err.source, knownSlugs);
-    if (relatedSlug) {
-      const actions = document.createElement("div");
-      actions.className = "error-actions";
-      const link = document.createElement("button");
-      link.type = "button";
-      link.className = "error-spec-link";
-      link.textContent = "View spec";
-      link.addEventListener("click", () => {
-        lastFocusedButton =
-          workList?.querySelector(`[data-slug="${CSS.escape(relatedSlug)}"]`) || link;
-        openSpec(relatedSlug);
-      });
-      actions.append(link);
-      li.append(actions);
-    }
-
-    if (
-      (activeSlug && relatedSlug === activeSlug) ||
-      (activePlanId && err.source?.includes(activePlanId)) ||
-      (activeSlug && err.source?.includes(activeSlug))
-    ) {
-      li.classList.add("error-item--related");
-    }
-
-    errorList.append(li);
-  }
-}
-
 function hideDetailViews() {
   if (specDetailRoot) specDetailRoot.hidden = true;
   if (planDetailRoot) planDetailRoot.hidden = true;
@@ -549,7 +462,6 @@ function closeDetail({ updateHash = true } = {}) {
   setDetailOpen(false);
   document.title = "scribe · devscrolls";
   renderWorkBoard(cachedSpecs, cachedPlans);
-  renderErrors(cachedErrors);
   if (updateHash) {
     const url = new URL(window.location.href);
     url.hash = "";
@@ -567,7 +479,6 @@ async function openSpec(slug, { updateHash = true } = {}) {
   hideDetailViews();
   clearBreadcrumb();
   renderWorkBoard(cachedSpecs, cachedPlans);
-  renderErrors(cachedErrors);
   if (detailLoading) {
     clearDetailError();
     setLoadingText(detailLoading, DETAIL_LOADING);
@@ -609,7 +520,6 @@ async function openPlan(id, { updateHash = true } = {}) {
   setDetailOpen(true);
   hideDetailViews();
   renderWorkBoard(cachedSpecs, cachedPlans);
-  renderErrors(cachedErrors);
   if (detailLoading) {
     clearDetailError();
     setLoadingText(detailLoading, DETAIL_LOADING);
@@ -663,19 +573,15 @@ async function loadBoard() {
   hideBoardError();
   setLoadingText(workLoading, WORK_LOADING);
   setLoading(workLoading, true);
-  setErrorsPanelVisible(false);
   if (workList) workList.hidden = true;
-  if (errorList) errorList.hidden = true;
   if (workEmpty) workEmpty.hidden = true;
 
   try {
-    const [specData, planData, errorData] = await Promise.all([
+    const [specData, planData] = await Promise.all([
       apiFetch("specs"),
       apiFetch("plans"),
-      apiFetch("errors"),
     ]);
     renderWorkBoard(specData.specs || [], planData.plans || []);
-    renderErrors(errorData.errors || []);
   } catch (e) {
     setLoading(workLoading, false);
     const msg =
@@ -684,9 +590,7 @@ async function loadBoard() {
         : e.message || "Could not load board";
     showBoardError(msg, () => loadBoard());
     if (workEmpty) workEmpty.hidden = true;
-    setErrorsPanelVisible(false);
     if (workList) workList.hidden = true;
-    if (errorList) errorList.hidden = true;
   } finally {
     setBusy(false);
     const fromHash = detailFromHash();

@@ -2,12 +2,12 @@
 
 ## Overview
 
-Operational planning dashboard on the devscrolls dark slate base. Master/detail board: work tree (left), detail pane (center, always visible), errors rail (right, when needed). No marketing chrome.
+Operational planning dashboard on the devscrolls dark slate base. Master/detail board: work tree (left), detail pane (center when a row is selected). No marketing chrome.
 
 ## Layout
 
-- **Default:** work tree (~30%, min 14rem) | detail pane (empty state when idle) | errors rail when unresolved failures exist.
-- **Detail open (desktop/tablet ≥769px):** compact work tree | detail content | errors rail (when present).
+- **Default:** full-width work tree until a row is selected.
+- **Detail open (desktop/tablet ≥769px):** compact work tree | detail content.
 - **Narrow (≤768px):** work tree on top, detail below; when detail is open the tree caps at ~38vh and scrolls so implementations stay reachable above the reader.
 - **Routing:** hash `#specs/{slug}` or `#plans/{id}` for drill-down without navigation; `/specs/{slug}` redirects to board hash.
 
@@ -45,8 +45,7 @@ Scale: page title `clamp(1.5rem, 3vw, 2rem)`, spec titles `1.125rem`, body `1rem
 - **Spec row:** title, slug, status pill; lock badge only when held (age in screen-reader label)
 - **Implementation row:** indented, title, inline progress bar, status pill
 - **Detail pane:** empty state when idle; breadcrumb (`spec › implementation`) when viewing an implementation; sticky title row, readable markdown below
-- **Errors panel:** scrollable list of unresolved errors with source, message, age
-- **Empty states:** `—` plus muted hint for zero active work; errors rail hidden when the board is clear
+- **Empty states:** `—` plus muted hint for zero active work
 
 ## Status language
 
@@ -65,4 +64,4 @@ Agent spec bodies are markdown (often pasted from DESIGN.md). The renderer strip
 
 ## Terminology
 
-**Spec**, **implementation**, **lock**, **errors board**, **active work**. CSS prefixes: `scribe-`, `work-`, `spec-`, `error-`. No **fleet**.
+**Spec**, **implementation**, **lock**, **active work**. CSS prefixes: `scribe-`, `work-`, `spec-`. No **fleet**.

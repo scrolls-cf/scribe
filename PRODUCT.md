@@ -6,11 +6,11 @@ product
 
 ## Users
 
-devscrolls developers and composer agents operating behind Cloudflare Access on the scrollsmatrix gateway. They check what design specs are in flight, which agent holds a lock, and org-wide errors that still need attention.
+devscrolls developers and composer agents operating behind Cloudflare Access on the scrollsmatrix gateway. They check what design specs are in flight and which agent holds a lock.
 
 ## Product Purpose
 
-Scribe is the edge store for design specs and the matrix service registry. The crafted surface is a planning dashboard: active specs show status and agent locks so only one agent works a spec at a time. An errors board surfaces unaddressed failures across the org repo. Completed specs drop off the board. Success means a visitor sees accurate in-flight work, cannot double-pick a locked spec, and can read each spec as the agent wrote it.
+Scribe is the edge store for design specs and the matrix service registry. The crafted surface is a planning dashboard: active specs show status and agent locks so only one agent works a spec at a time. Completed specs drop off the board. Success means a visitor sees accurate in-flight work, cannot double-pick a locked spec, and can read each spec as the agent wrote it.
 
 ## Brand Personality
 
@@ -28,8 +28,7 @@ Focused, operational, trustworthy. devscrolls family: minimal chrome, status you
 1. **Active work only** — the board shows specs that still need attention; done specs disappear.
 2. **One agent per spec** — locks are visible and enforceable; status reflects who holds the work.
 3. **Spec is the draft** — the markdown body is the source of truth; detail shows title, meta, and prose as written. Spec rows on the board show status and locks only — no progress. Step and phase progress belong to implementations only.
-4. **Errors are first-class** — unresolved org errors sit beside specs, not buried in logs.
-5. **devscrolls continuity** — same palette and type as scrollsmatrix; Scribe reads as part of the platform.
+4. **devscrolls continuity** — same palette and type as scrollsmatrix; Scribe reads as part of the platform.
 
 ## Spec lifecycle
 
@@ -53,7 +52,7 @@ A **spec** is a rough draft (markdown body plus API metadata). It stays on the b
 
 **Active work count:** **1 spec = 1 active work** in the heading badge. Nested implementations do not increase the count. Detached groups (spec completed, implementation still in flight) count as one unit per completed spec slug.
 
-**Layout:** persistent work tree (left) lists specs and nested implementations; detail pane (center) is always visible with an empty state when nothing is selected; errors rail (right) appears only when unresolved failures exist.
+**Layout:** persistent work tree (left) lists specs and nested implementations; detail pane (center) opens when a row is selected. Tree-first on desktop until selection.
 
 **Detached implementations:** when a parent spec is complete and off the board, its in-flight implementations appear under a muted **Spec completed · {slug}** group.
 
@@ -64,9 +63,8 @@ A **spec** is a rough draft (markdown body plus API metadata). It stays on the b
 | Panel | Empty display | Meaning |
 |-------|---------------|---------|
 | Active work | `—` | Nothing in flight (no queued work, or all work completed) |
-| Errors board | Hidden | No unresolved org failures; the rail appears only when errors exist |
 
-Empty states are not CTAs. Agents create specs, update status, resolve errors, and mark completion through the API.
+Empty states are not CTAs. Agents create specs, update status, and mark completion through the API.
 
 ## Accessibility & Inclusion
 
@@ -86,4 +84,4 @@ Standard best practices: semantic landmarks, visible focus, status not conveyed 
 
 ## Terminology
 
-Use **spec**, **implementation**, **lock**, **errors board**, **active work**. Brand name **devscrolls** (lowercase) when referring to the platform. Service name **scribe** (lowercase) for this Worker. **Phase** and **plan** are agent API terms only; the dashboard says **implementation** for child work rows.
+Use **spec**, **implementation**, **lock**, **active work**. Brand name **devscrolls** (lowercase) when referring to the platform. Service name **scribe** (lowercase) for this Worker. **Phase** and **plan** are agent API terms only; the dashboard says **implementation** for child work rows. Org errors remain API-only for agents (`POST /errors`); they are not shown on the board UI.
