@@ -39,6 +39,7 @@ const errorList = document.getElementById("error-list");
 const boardError = document.getElementById("board-error");
 const boardMain = document.getElementById("board-main");
 const workCount = document.getElementById("work-count");
+const workHeading = document.getElementById("work-heading");
 const workBoardHint = document.getElementById("work-board-hint");
 const detailPanel = document.getElementById("detail-panel");
 const detailEmpty = document.getElementById("detail-empty");
@@ -48,12 +49,91 @@ const specDetailRoot = document.getElementById("spec-detail");
 const planDetailRoot = document.getElementById("plan-detail");
 const errorsLive = document.getElementById("errors-live");
 
+const WORK_FILTER_THRESHOLD = 8;
+
 let activeSlug = null;
 let activePlanId = null;
 let cachedSpecs = [];
 let cachedPlans = [];
 let cachedErrors = [];
 let lastFocusedButton = null;
+let workFilter = "all";
+let workFilterSelect = null;
+
+function isMobileDetail() {
+  return window.matchMedia("(max-width: 768px)").matches;
+}
+
+function focusDetailOnMobile() {
+  if (!isMobileDetail()) return;
+  const target =
+    (detailBreadcrumb && !detailBreadcrumb.hidden
+      ? detailBreadcrumb.querySelector("button")
+      : null) ||
+    (specDetailRoot && !specDetailRoot.hidden
+      ? document.getElementById("spec-detail-title")
+      : null) ||
+    (planDetailRoot && !planDetailRoot.hidden
+      ? document.getElementById("plan-detail-title")
+      : null) ||
+    detailPanel;
+  if (!target) return;
+  if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+  target.focus();
+}
+
+function specMatchesFilter(spec) {
+  if (workFilter === "all") return true;
+  if (workFilter === "locked") return !!spec.lock;
+  const status = specBoardStatus(spec);
+  return status === "ready" || status === "in_progress";
+}
+
+function planMatchesFilter(plan) {
+  if (workFilter === "all") return true;
+  if (workFilter === "locked") return !!plan.lock;
+  const status = planBoardStatus(plan);
+  return status === "ready" || status === "in_progress";
+}
+
+function filterBoardData(specs, plans) {
+  if (workFilter === "all") return { specs, plans };
+  const filteredPlans = plans.filter(planMatchesFilter);
+  const filteredSpecs = specs.filter(
+    (spec) =>
+      specMatchesFilter(spec) ||
+      filteredPlans.some((plan) => plan.spec_slug === spec.slug),
+  );
+  return { specs: filteredSpecs, plans: filteredPlans };
+}
+
+function syncWorkFilterControl(total) {
+  if (total <= WORK_FILTER_THRESHOLD) {
+    if (workFilterSelect) {
+      workFilterSelect.remove();
+      workFilterSelect = null;
+      workFilter = "all";
+    }
+    return;
+  }
+  if (!workFilterSelect && workHeading) {
+    workFilterSelect = document.createElement("select");
+    workFilterSelect.id = "work-filter";
+    workFilterSelect.className = "work-filter";
+    workFilterSelect.setAttribute("aria-label", "Filter active work");
+    workFilterSelect.innerHTML = `
+      <option value="all">All</option>
+      <option value="locked">Locked</option>
+      <option value="active">Ready / In progress</option>
+    `;
+    workFilterSelect.addEventListener("change", () => {
+      workFilter = workFilterSelect.value;
+      renderWorkBoard(cachedSpecs, cachedPlans);
+    });
+    workHeading.append(workFilterSelect);
+  }
+  if (workFilterSelect) workFilterSelect.value = workFilter;
+}
 
 function setBusy(busy) {
   if (boardMain) boardMain.setAttribute("aria-busy", busy ? "true" : "false");
@@ -294,6 +374,12 @@ function renderWorkBoard(specs, plans) {
   cachedSpecs = specs;
   cachedPlans = plans;
 
+  const total = specs.length + plans.length;
+  syncWorkFilterControl(total);
+  const filtered = filterBoardData(specs, plans);
+  specs = filtered.specs;
+  plans = filtered.plans;
+
   const specSlugs = new Set(specs.map((s) => s.slug));
   const orphanPlans = plans.filter((p) => !specSlugs.has(p.spec_slug));
 
@@ -309,9 +395,9 @@ function renderWorkBoard(specs, plans) {
   workList.hidden = false;
   if (workBoardHint) workBoardHint.hidden = false;
   if (workCount) {
-    const total = specs.length + plans.length;
-    workCount.textContent = String(total);
-    workCount.hidden = !total;
+    const visibleTotal = specs.length + plans.length;
+    workCount.textContent = String(visibleTotal);
+    workCount.hidden = !visibleTotal;
   }
 
   for (const spec of specs) {
@@ -463,6 +549,7 @@ async function openSpec(slug, { updateHash = true } = {}) {
     }
     document.title = `${spec.title} · scribe · devscrolls`;
     detailPanel?.scrollTo(0, 0);
+    focusDetailOnMobile();
   } catch (e) {
     if (detailLoading) {
       detailLoading.textContent = e.message || "Could not load spec";
@@ -517,6 +604,7 @@ async function openPlan(id, { updateHash = true } = {}) {
 
     document.title = `${plan.title} · scribe · devscrolls`;
     detailPanel?.scrollTo(0, 0);
+    focusDetailOnMobile();
   } catch (e) {
     if (detailLoading) {
       detailLoading.textContent = e.message || "Could not load plan";
