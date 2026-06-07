@@ -2,7 +2,7 @@
 
 ## Overview
 
-Operational planning dashboard on the devscrolls dark slate base. Master/detail board: work tree (left), detail pane (center when a row is selected). No marketing chrome.
+Operational planning dashboard on the devscrolls dark slate base. **Ledger register** visual language: fine grid atmosphere, mono wordmark, elevated work-group cards, dot-status pills, reader pane with inset surface. Master/detail board unchanged in behavior. No marketing chrome.
 
 ## Layout
 
@@ -40,8 +40,10 @@ Scale: page title `clamp(1.5rem, 3vw, 2rem)`, spec titles `1.125rem`, body `1rem
 
 ## Components
 
-- **App shell:** header (scribe wordmark + devscrolls), full-width board grid
-- **Work tree:** two row types — `work-row--spec` (draft) and `work-row--impl` (implementation). Implementations nest under their parent spec with indentation only (no colored stripe). Detached groups use **Spec completed · {slug}**. Detail open compacts rows but keeps parent/child grouping.
+- **App shell:** sticky blurred header, mono `scribe` mark + `devscrolls` platform pill, keyboard hint strip
+- **Atmosphere:** 24px grid mask (not radial glow), surface elevation via `--shadow-raised`
+- **Work tree:** spec groups as rounded cards (`work-group`); rows with rounded hit targets. Two row types — `work-row--spec` and `work-row--impl`. Implementations nest with indentation only. Detached groups use **Spec completed · {slug}** in mono. Detail open compacts tree rail.
+- **Status:** pill + dot (`status-pill::before`); lock badges as mono capsules
 - **Spec row:** title, slug, status pill; lock badge only when held (age in screen-reader label)
 - **Implementation row:** indented, title, inline progress bar, status pill
 - **Detail pane:** empty state when idle; breadcrumb (`spec › implementation`) when viewing an implementation; sticky title row, readable markdown below
