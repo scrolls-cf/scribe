@@ -39,24 +39,14 @@
 
   <main class="scribe-main" id="board-main" aria-busy="true" aria-keyshortcuts="r Escape">
     <section class="scribe-panel scribe-panel--specs" aria-labelledby="specs-heading">
-      <div class="board-rail-specs">
+      <div class="board-rail-work">
         <h2 id="specs-heading">Active specs <span id="spec-count" class="panel-count" hidden></span></h2>
-        <p id="spec-loading" class="panel-status" role="status" aria-live="polite">Loading specs…</p>
-        <ul id="spec-list" class="spec-list" role="list" hidden></ul>
+        <p id="spec-loading" class="panel-status" role="status" aria-live="polite">Loading board…</p>
+        <ul id="spec-list" class="work-list" role="list" hidden></ul>
         <div id="spec-empty" class="panel-empty panel-empty--idle" hidden aria-live="polite">
           <p class="panel-empty-lead" aria-hidden="true">—</p>
           <p class="panel-empty-hint" aria-hidden="true">Nothing in flight. Completed specs open by slug.</p>
           <span class="sr-only">No active specs. Completed specs are hidden unless opened by slug.</span>
-        </div>
-      </div>
-
-      <div class="board-rail-plans" id="board-rail-plans">
-        <h2 id="plans-heading" class="panel-subheading">Plans <span id="plan-count" class="panel-count" hidden></span></h2>
-        <p id="plan-loading" class="panel-status" role="status" aria-live="polite" hidden>Loading plans…</p>
-        <ul id="plan-list" class="spec-list plan-list" role="list" hidden></ul>
-        <div id="plan-empty" class="panel-empty panel-empty--idle" hidden aria-live="polite">
-          <p class="panel-empty-hint">No pushed plans yet. Run push-plan-to-scribe after a spec ships.</p>
-          <span class="sr-only">No active plans on the board.</span>
         </div>
       </div>
     </section>

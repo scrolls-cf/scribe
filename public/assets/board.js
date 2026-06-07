@@ -22,13 +22,9 @@ import { renderSpecDetail } from "./spec-view.js";
 
 devNote();
 
-const SPEC_LOADING = [
-  "Reading active specs from the edge store…",
-  "Checking lock state on in-flight specs…",
-];
-const PLAN_LOADING = [
-  "Reading pushed plans from the edge store…",
-  "Checking phase progress on active plans…",
+const WORK_LOADING = [
+  "Reading active specs and plans from the edge store…",
+  "Checking locks and plan progress…",
 ];
 const DETAIL_LOADING = [
   "Loading from scribe…",
@@ -38,15 +34,11 @@ const DETAIL_LOADING = [
 const specList = document.getElementById("spec-list");
 const specEmpty = document.getElementById("spec-empty");
 const specLoading = document.getElementById("spec-loading");
-const planList = document.getElementById("plan-list");
-const planEmpty = document.getElementById("plan-empty");
-const planLoading = document.getElementById("plan-loading");
 const errorsPanel = document.getElementById("errors-panel");
 const errorList = document.getElementById("error-list");
 const boardError = document.getElementById("board-error");
 const boardMain = document.getElementById("board-main");
 const specCount = document.getElementById("spec-count");
-const planCount = document.getElementById("plan-count");
 const detailPanel = document.getElementById("spec-detail-panel");
 const specDetailRoot = document.getElementById("spec-detail");
 const planDetailRoot = document.getElementById("plan-detail");
@@ -165,13 +157,125 @@ function renderSpecPlanLinks(slug) {
   }
 }
 
-function renderSpecs(specs) {
+function createSpecCard(spec) {
+  const linkedPlans = plansForSpec(spec.slug);
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "spec-card";
+  if (spec.slug === activeSlug) btn.classList.add("is-selected");
+  if (activePlanId && linkedPlans.some((p) => p.id === activePlanId)) {
+    btn.classList.add("is-related");
+  }
+  btn.dataset.slug = spec.slug;
+  btn.setAttribute("aria-label", specLinkLabel(spec));
+  btn.setAttribute("aria-pressed", spec.slug === activeSlug ? "true" : "false");
+
+  const lockText = lockSummary(spec.lock);
+  const lockOpen = !spec.lock;
+
+  btn.innerHTML = `
+    <div class="spec-card-head">
+      <div class="spec-card-identity">
+        <h3>${escape(spec.title)}</h3>
+        <p class="spec-slug">${escape(spec.slug)}</p>
+      </div>
+      <span class="status-pill" data-status="${escape(specBoardStatus(spec))}">${escape(specBoardStatusLabel(spec))}</span>
+    </div>
+    <div class="spec-meta">
+      <span class="lock-badge" ${lockOpen ? 'data-open="true"' : ""}>${escape(lockText)}</span>
+      <span class="spec-meta-age">${formatAge(spec.updated_at)}</span>
+    </div>
+  `;
+
+  btn.addEventListener("click", () => {
+    if (spec.slug === activeSlug) {
+      closeDetail();
+      return;
+    }
+    lastFocusedButton = btn;
+    openSpec(spec.slug);
+  });
+
+  return btn;
+}
+
+function createPlanCard(plan, { nested = false } = {}) {
+  const ratio = Math.round((plan.completion_ratio || 0) * 100);
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "spec-card plan-card";
+  if (nested) btn.classList.add("plan-card--nested");
+  if (plan.id === activePlanId) btn.classList.add("is-selected");
+  if (activeSlug && plan.spec_slug === activeSlug) btn.classList.add("is-related");
+  btn.dataset.planId = plan.id;
+  btn.setAttribute("aria-label", planLinkLabel(plan));
+  btn.setAttribute("aria-pressed", plan.id === activePlanId ? "true" : "false");
+
+  const lockText = lockSummary(plan.lock);
+  const lockOpen = !plan.lock;
+  const activePhase = plan.active_phase?.title
+    ? `<p class="plan-active-phase">${escape(plan.active_phase.title)}</p>`
+    : "";
+  const slugLine = nested
+    ? ""
+    : `<p class="spec-slug">${escape(plan.spec_slug)}</p>`;
+
+  btn.innerHTML = `
+    <div class="spec-card-head">
+      <div class="spec-card-identity">
+        <p class="plan-row-label" aria-hidden="true">Plan</p>
+        <h3>${escape(plan.title)}</h3>
+        ${slugLine}
+        ${activePhase}
+      </div>
+      <span class="status-pill" data-status="${escape(planBoardStatus(plan))}">${escape(planBoardStatusLabel(plan))}</span>
+    </div>
+    <div class="spec-meta">
+      <span class="plan-progress-label">${escape(planProgressLabel(plan))}</span>
+      <div class="plan-progress" role="presentation" style="--plan-progress: ${ratio / 100}">
+        <div class="plan-progress-bar"></div>
+      </div>
+      <span class="lock-badge" ${lockOpen ? 'data-open="true"' : ""}>${escape(lockText)}</span>
+      <span class="spec-meta-age">${formatAge(plan.updated_at)}</span>
+    </div>
+  `;
+
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (plan.id === activePlanId) {
+      closeDetail();
+      return;
+    }
+    lastFocusedButton = btn;
+    openPlan(plan.id);
+  });
+
+  return btn;
+}
+
+function appendPlanList(plans) {
+  const ul = document.createElement("ul");
+  ul.className = "plan-nested-list";
+  ul.setAttribute("role", "list");
+  for (const plan of plans) {
+    const planLi = document.createElement("li");
+    planLi.append(createPlanCard(plan, { nested: true }));
+    ul.append(planLi);
+  }
+  return ul;
+}
+
+function renderWorkBoard(specs, plans) {
   if (!specList || !specEmpty) return;
   setLoading(specLoading, false);
   specList.replaceChildren();
   cachedSpecs = specs;
+  cachedPlans = plans;
 
-  if (!specs.length) {
+  const specSlugs = new Set(specs.map((s) => s.slug));
+  const orphanPlans = plans.filter((p) => !specSlugs.has(p.spec_slug));
+
+  if (!specs.length && !plans.length) {
     specList.hidden = true;
     specEmpty.hidden = false;
     if (specCount) specCount.hidden = true;
@@ -182,124 +286,37 @@ function renderSpecs(specs) {
   specList.hidden = false;
   if (specCount) {
     specCount.textContent = String(specs.length);
-    specCount.hidden = false;
+    specCount.hidden = !specs.length;
   }
 
   for (const spec of specs) {
-    const linkedPlans = plansForSpec(spec.slug);
-    const li = document.createElement("li");
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "spec-card";
-    if (spec.slug === activeSlug) btn.classList.add("is-selected");
-    if (activePlanId && linkedPlans.some((p) => p.id === activePlanId)) {
-      btn.classList.add("is-related");
+    const group = document.createElement("li");
+    group.className = "spec-group";
+    group.append(createSpecCard(spec));
+    const nested = plansForSpec(spec.slug);
+    if (nested.length) group.append(appendPlanList(nested));
+    specList.append(group);
+  }
+
+  if (orphanPlans.length) {
+    const bySlug = new Map();
+    for (const plan of orphanPlans) {
+      const slug = plan.spec_slug || "unknown";
+      if (!bySlug.has(slug)) bySlug.set(slug, []);
+      bySlug.get(slug).push(plan);
     }
-    btn.dataset.slug = spec.slug;
-    btn.setAttribute("aria-label", specLinkLabel(spec));
-    btn.setAttribute("aria-pressed", spec.slug === activeSlug ? "true" : "false");
 
-    const lockText = lockSummary(spec.lock);
-    const lockOpen = !spec.lock;
-    const planHint =
-      linkedPlans.length > 0
-        ? `<span class="spec-plan-count">${linkedPlans.length} plan${linkedPlans.length === 1 ? "" : "s"}</span>`
-        : "";
+    for (const [slug, slugPlans] of bySlug) {
+      const group = document.createElement("li");
+      group.className = "spec-group spec-group--detached";
 
-    btn.innerHTML = `
-      <div class="spec-card-head">
-        <div class="spec-card-identity">
-          <h3>${escape(spec.title)}</h3>
-          <p class="spec-slug">${escape(spec.slug)}</p>
-        </div>
-        <span class="status-pill" data-status="${escape(specBoardStatus(spec))}">${escape(specBoardStatusLabel(spec))}</span>
-      </div>
-      <div class="spec-meta">
-        ${planHint}
-        <span class="lock-badge" ${lockOpen ? 'data-open="true"' : ""}>${escape(lockText)}</span>
-        <span class="spec-meta-age">${formatAge(spec.updated_at)}</span>
-      </div>
-    `;
-
-    btn.addEventListener("click", () => {
-      if (spec.slug === activeSlug) {
-        closeDetail();
-        return;
-      }
-      lastFocusedButton = btn;
-      openSpec(spec.slug);
-    });
-    li.append(btn);
-    specList.append(li);
-  }
-}
-
-function renderPlans(plans) {
-  if (!planList || !planEmpty) return;
-  setLoading(planLoading, false);
-  planList.replaceChildren();
-  cachedPlans = plans;
-
-  if (!plans.length) {
-    planList.hidden = true;
-    planEmpty.hidden = false;
-    if (planCount) planCount.hidden = true;
-    return;
-  }
-
-  planEmpty.hidden = true;
-  planList.hidden = false;
-  if (planCount) {
-    planCount.textContent = String(plans.length);
-    planCount.hidden = false;
-  }
-
-  for (const plan of plans) {
-    const ratio = Math.round((plan.completion_ratio || 0) * 100);
-    const li = document.createElement("li");
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "spec-card plan-card";
-    if (plan.id === activePlanId) btn.classList.add("is-selected");
-    btn.dataset.planId = plan.id;
-    btn.setAttribute("aria-label", planLinkLabel(plan));
-    btn.setAttribute("aria-pressed", plan.id === activePlanId ? "true" : "false");
-
-    const lockText = lockSummary(plan.lock);
-    const lockOpen = !plan.lock;
-    const activePhase = plan.active_phase?.title
-      ? `<p class="plan-active-phase">${escape(plan.active_phase.title)}</p>`
-      : "";
-
-    btn.innerHTML = `
-      <div class="spec-card-head">
-        <div class="spec-card-identity">
-          <h3>${escape(plan.title)}</h3>
-          <p class="spec-slug">${escape(plan.spec_slug)}</p>
-          ${activePhase}
-        </div>
-        <span class="status-pill" data-status="${escape(planBoardStatus(plan))}">${escape(planBoardStatusLabel(plan))}</span>
-      </div>
-      <div class="spec-meta">
-        <span class="plan-progress-label">${escape(planProgressLabel(plan))}</span>
-        <div class="plan-progress" role="presentation" style="--plan-progress: ${ratio / 100}">
-          <div class="plan-progress-bar"></div>
-        </div>
-        <span class="lock-badge" ${lockOpen ? 'data-open="true"' : ""}>${escape(lockText)}</span>
-        <span class="spec-meta-age">${formatAge(plan.updated_at)}</span>
-      </div>
-    `;
-
-    btn.addEventListener("click", () => {
-      if (plan.id === activePlanId) {
-        closeDetail();
-        return;
-      }
-      lastFocusedButton = btn;
-      openPlan(plan.id);
-    });
-    li.append(btn);
-    planList.append(li);
+      const label = document.createElement("div");
+      label.className = "spec-group-detached-label";
+      label.textContent = slug;
+      group.append(label);
+      group.append(appendPlanList(slugPlans));
+      specList.append(group);
+    }
   }
 }
 
@@ -379,8 +396,7 @@ function closeDetail({ updateHash = true } = {}) {
   hideDetailViews();
   if (detailLoading) detailLoading.hidden = true;
   document.title = "scribe · devscrolls";
-  renderSpecs(cachedSpecs);
-  renderPlans(cachedPlans);
+  renderWorkBoard(cachedSpecs, cachedPlans);
   renderErrors(cachedErrors);
   if (updateHash) {
     const url = new URL(window.location.href);
@@ -397,8 +413,7 @@ async function openSpec(slug, { updateHash = true } = {}) {
   activePlanId = null;
   setDetailOpen(true);
   hideDetailViews();
-  renderSpecs(cachedSpecs);
-  renderPlans(cachedPlans);
+  renderWorkBoard(cachedSpecs, cachedPlans);
   renderErrors(cachedErrors);
   if (detailLoading) {
     setLoadingText(detailLoading, DETAIL_LOADING);
@@ -438,8 +453,7 @@ async function openPlan(id, { updateHash = true } = {}) {
   activeSlug = null;
   setDetailOpen(true);
   hideDetailViews();
-  renderSpecs(cachedSpecs);
-  renderPlans(cachedPlans);
+  renderWorkBoard(cachedSpecs, cachedPlans);
   renderErrors(cachedErrors);
   if (detailLoading) {
     setLoadingText(detailLoading, DETAIL_LOADING);
@@ -462,7 +476,9 @@ async function openPlan(id, { updateHash = true } = {}) {
       planDetailRoot.hidden = false;
       renderPlanDetail(planDetailRoot, plan, {
         onOpenSpec: (slug) => {
-          lastFocusedButton = planList?.querySelector(`[data-plan-id="${CSS.escape(id)}"]`);
+          lastFocusedButton = document.querySelector(
+            `[data-plan-id="${CSS.escape(id)}"]`,
+          );
           openSpec(slug);
         },
       });
@@ -480,16 +496,12 @@ async function openPlan(id, { updateHash = true } = {}) {
 async function loadBoard() {
   setBusy(true);
   hideBoardError();
-  setLoadingText(specLoading, SPEC_LOADING);
-  setLoadingText(planLoading, PLAN_LOADING);
+  setLoadingText(specLoading, WORK_LOADING);
   setLoading(specLoading, true);
-  setLoading(planLoading, true);
   setErrorsPanelVisible(false);
   if (specList) specList.hidden = true;
-  if (planList) planList.hidden = true;
   if (errorList) errorList.hidden = true;
   if (specEmpty) specEmpty.hidden = true;
-  if (planEmpty) planEmpty.hidden = true;
 
   try {
     const [specData, planData, errorData] = await Promise.all([
@@ -497,22 +509,18 @@ async function loadBoard() {
       apiFetch("plans"),
       apiFetch("errors"),
     ]);
-    renderPlans(planData.plans || []);
-    renderSpecs(specData.specs || []);
+    renderWorkBoard(specData.specs || [], planData.plans || []);
     renderErrors(errorData.errors || []);
   } catch (e) {
     setLoading(specLoading, false);
-    setLoading(planLoading, false);
     const msg =
       e instanceof TypeError
         ? "Could not reach scribe. Check your connection and try again."
         : e.message || "Could not load board";
     showBoardError(msg);
     if (specEmpty) specEmpty.hidden = true;
-    if (planEmpty) planEmpty.hidden = true;
     setErrorsPanelVisible(false);
     if (specList) specList.hidden = true;
-    if (planList) planList.hidden = true;
     if (errorList) errorList.hidden = true;
   } finally {
     setBusy(false);
