@@ -127,7 +127,7 @@ export class Scribe extends DurableObject {
 		for (const slug of slugs) {
 			const stored = await this.ctx.storage.get<SpecRecord>(specKey(slug));
 			if (!stored) continue;
-			const record = normalizeSpecRecord(stored);
+			const record = await this.loadSpecRecord(slug, stored);
 			if (!includeDone && record.status === "done") continue;
 			specs.push(record);
 		}
@@ -143,7 +143,15 @@ export class Scribe extends DurableObject {
 		if (!stored) {
 			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
 		}
-		return Response.json({ ok: true, spec: normalizeSpecRecord(stored) });
+		return Response.json({ ok: true, spec: await this.loadSpecRecord(slug, stored) });
+	}
+
+	private async loadSpecRecord(slug: string, stored: SpecRecord): Promise<SpecRecord> {
+		const record = normalizeSpecRecord(stored);
+		if (stored.status === "in_progress" && !stored.lock && record.status === "ready") {
+			await this.ctx.storage.put(specKey(slug), record);
+		}
+		return record;
 	}
 
 	private async saveSpec(request: Request): Promise<Response> {
@@ -233,11 +241,10 @@ export class Scribe extends DurableObject {
 		const updated: SpecRecord = {
 			...record,
 			lock: { agent_id: parsed.value.agent_id, acquired_at: now },
-			status: record.status === "ready" ? "in_progress" : record.status,
 			updated_at: now,
 		};
 		await this.ctx.storage.put(specKey(slug), updated);
-		return Response.json({ ok: true, spec: updated });
+		return Response.json({ ok: true, spec: normalizeSpecRecord(updated) });
 	}
 
 	private async releaseLock(slug: string, request: Request): Promise<Response> {
@@ -530,7 +537,6 @@ export class Scribe extends DurableObject {
 		const updated: SpecRecord = {
 			...record,
 			lock: { agent_id: agentId, acquired_at: now },
-			status: record.status === "ready" ? "in_progress" : record.status,
 			updated_at: now,
 		};
 		return { ok: true, spec: updated };

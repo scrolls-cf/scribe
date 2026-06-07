@@ -40,7 +40,7 @@ Scale: page title `clamp(1.5rem, 3vw, 2rem)`, spec titles `1.125rem`, body `1rem
 ## Components
 
 - **App shell:** header (scribe wordmark + devscrolls), full-width board grid
-- **Spec row:** title, slug, status pill, lock badge (agent id or Open), updated age
+- **Spec row:** CSS grid rail — title/slug in left column; status pill, lock badge, updated age stacked in right column. Below 540px (full-width list), meta flows in a single column under the title row. Detail open compacts rows to title-only.
 - **Inline spec detail:** sticky title row (status meta inline), readable markdown below
 - **Errors panel:** scrollable list of unresolved errors with source, message, age
 - **Empty states:** `—` for zero active specs; **Clear** for zero unresolved errors

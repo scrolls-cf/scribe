@@ -5,7 +5,8 @@ import {
   specLinkLabel,
   specSlugFromErrorSource,
   specSlugFromPath,
-  statusLabel,
+  specBoardStatus,
+  specBoardStatusLabel,
 } from "./api.js";
 import {
   devNote,
@@ -123,11 +124,11 @@ function renderSpecs(specs) {
 
     btn.innerHTML = `
       <div class="spec-card-head">
-        <div>
+        <div class="spec-card-identity">
           <h3>${escape(spec.title)}</h3>
           <p class="spec-slug">${escape(spec.slug)}</p>
         </div>
-        <span class="status-pill" data-status="${escape(spec.status)}">${escape(statusLabel(spec.status))}</span>
+        <span class="status-pill" data-status="${escape(specBoardStatus(spec))}">${escape(specBoardStatusLabel(spec))}</span>
       </div>
       <div class="spec-meta">
         <span class="lock-badge" ${lockOpen ? 'data-open="true"' : ""}>${escape(lockText)}</span>

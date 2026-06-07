@@ -320,7 +320,10 @@ button:disabled {
 }
 
 .spec-card {
-  display: block;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-4);
   width: 100%;
   text-align: left;
   padding: var(--space-4) 0;
@@ -347,6 +350,10 @@ button:disabled {
   border-bottom-color: color-mix(in oklch, var(--color-primary) 35%, var(--color-border));
 }
 
+.scribe-main[data-detail-open="true"] .spec-card {
+  display: block;
+}
+
 .scribe-main[data-detail-open="true"] .spec-card-head h3 {
   font-size: var(--text-sm);
 }
@@ -365,10 +372,18 @@ button:disabled {
 }
 
 .spec-card-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
+  display: contents;
+}
+
+.spec-card-identity {
+  grid-column: 1;
+  min-width: 0;
+}
+
+.spec-card-head .status-pill {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
 }
 
 .spec-card h3 {
@@ -421,13 +436,19 @@ button:disabled {
 }
 
 .spec-meta {
+  grid-column: 2;
+  grid-row: 2;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3) var(--space-4);
-  margin-top: var(--space-4);
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin: 0;
   font-size: var(--text-sm);
   color: var(--color-ink-secondary);
+}
+
+.scribe-main[data-detail-open="true"] .spec-card-head {
+  display: block;
 }
 
 .lock-badge {
@@ -447,6 +468,41 @@ button:disabled {
 .spec-meta-age {
   margin-left: auto;
   font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 540px) {
+  .scribe-main:not([data-detail-open="true"]) .spec-card {
+    grid-template-columns: 1fr;
+    gap: var(--space-2);
+  }
+
+  .scribe-main:not([data-detail-open="true"]) .spec-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+
+  .scribe-main:not([data-detail-open="true"]) .spec-card-identity {
+    grid-column: auto;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .scribe-main:not([data-detail-open="true"]) .spec-card-head .status-pill {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .scribe-main:not([data-detail-open="true"]) .spec-meta {
+    grid-column: 1;
+    grid-row: auto;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
 }
 
 .error-list {

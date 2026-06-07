@@ -69,11 +69,22 @@ export function formatAge(iso) {
 export function statusLabel(status) {
   const map = {
     ready: "Ready",
-    in_progress: "In progress",
+    in_progress: "Ready",
     blocked: "Blocked",
     done: "Done",
   };
   return map[status] || status;
+}
+
+/** Board/detail status for specs (no build progress). */
+export function specBoardStatus(spec) {
+  if (spec.status === "done") return "done";
+  if (spec.status === "blocked") return "blocked";
+  return "ready";
+}
+
+export function specBoardStatusLabel(spec) {
+  return statusLabel(specBoardStatus(spec));
 }
 
 export function lockSummary(lock) {
@@ -84,7 +95,7 @@ export function lockSummary(lock) {
 export function specLinkLabel(spec) {
   return [
     spec.title,
-    statusLabel(spec.status),
+    specBoardStatusLabel(spec),
     lockSummary(spec.lock),
     `Updated ${formatAge(spec.updated_at)}`,
   ].join(", ");

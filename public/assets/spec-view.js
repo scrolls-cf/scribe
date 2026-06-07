@@ -1,7 +1,8 @@
 import {
   formatAge,
   lockSummary,
-  statusLabel,
+  specBoardStatus,
+  specBoardStatusLabel,
 } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
 
@@ -26,8 +27,8 @@ export function renderToolbar(toolbar, spec) {
 
   const status = document.createElement("span");
   status.className = "status-pill";
-  status.dataset.status = spec.status;
-  status.textContent = statusLabel(spec.status);
+  status.dataset.status = specBoardStatus(spec);
+  status.textContent = specBoardStatusLabel(spec);
   toolbar.append(status);
 
   const updated = document.createElement("span");

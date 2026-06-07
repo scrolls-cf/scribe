@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseSaveSpecInput } from "./spec.ts";
+import { parseSaveSpecInput, normalizeSpecRecord, specBoardStatus, toSpecSummary } from "./spec.ts";
 
 describe("parseSaveSpecInput", () => {
 	it("accepts a valid spec payload", () => {
@@ -39,5 +39,23 @@ describe("parseSaveSpecInput", () => {
 			assert.equal(result.value.phases.length, 1);
 			assert.equal(result.value.lock, null);
 		}
+	});
+});
+
+describe("specBoardStatus", () => {
+	it("coerces stale in_progress without lock to ready", () => {
+		const record = normalizeSpecRecord({
+			slug: "x402-veo-api",
+			title: "Veo",
+			body: "# Spec",
+			status: "in_progress",
+			phases: [],
+			lock: null,
+			created_at: "2026-06-06T00:00:00.000Z",
+			updated_at: "2026-06-06T00:00:00.000Z",
+		});
+		assert.equal(record.status, "ready");
+		assert.equal(specBoardStatus(record), "ready");
+		assert.equal(toSpecSummary(record).status, "ready");
 	});
 });

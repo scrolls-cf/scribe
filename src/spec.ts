@@ -47,26 +47,39 @@ export function specKey(slug: string): string {
 }
 
 export function normalizeSpecRecord(raw: SpecRecord | (Omit<SpecRecord, "status" | "phases" | "lock"> & Partial<Pick<SpecRecord, "status" | "phases" | "lock">>)): SpecRecord {
+	const lock = raw.lock ?? null;
+	let status = raw.status ?? "ready";
+	if (status === "in_progress" && !lock) status = "ready";
 	return {
 		...raw,
-		status: raw.status ?? "ready",
+		status,
 		phases: Array.isArray(raw.phases) ? raw.phases : [],
-		lock: raw.lock ?? null,
+		lock,
 		created_at: raw.created_at ?? raw.updated_at,
 	};
 }
 
+/** Specs have no build progress; board shows ready/blocked/done only. */
+export function specBoardStatus(record: SpecRecord): SpecStatus {
+	const normalized = normalizeSpecRecord(record);
+	if (normalized.status === "done" || normalized.status === "blocked") {
+		return normalized.status;
+	}
+	return "ready";
+}
+
 export function toSpecSummary(record: SpecRecord): SpecSummary {
-	const phases_done = record.phases.filter((p) => p.status === "done").length;
+	const normalized = normalizeSpecRecord(record);
+	const phases_done = normalized.phases.filter((p) => p.status === "done").length;
 	return {
-		slug: record.slug,
-		title: record.title,
-		source: record.source,
-		status: record.status,
-		updated_at: record.updated_at,
+		slug: normalized.slug,
+		title: normalized.title,
+		source: normalized.source,
+		status: specBoardStatus(normalized),
+		updated_at: normalized.updated_at,
 		phases_done,
-		phases_total: record.phases.length,
-		lock: record.lock,
+		phases_total: normalized.phases.length,
+		lock: normalized.lock,
 	};
 }
 

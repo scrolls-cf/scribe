@@ -36,8 +36,9 @@ Focused, operational, trustworthy. devscrolls family: minimal chrome, status you
 | Stage | API status | On the board? | Where it lives |
 |-------|------------|---------------|----------------|
 | Spec saved | `ready` | Yes | Active specs list |
-| Work in flight | `in_progress` or `blocked` | Yes | Active specs list; inline detail shows markdown body |
-| Complete | `done` | **No** | Scribe edge store only; agents use `GET .../specs/{slug}` or `GET .../specs?all=true` |
+| Agent holds lock | `ready` (lock set) | Yes | Lock badge shows holder; status stays Ready |
+| Blocked | `blocked` | Yes | Active specs list |
+| Complete | `done` | **No** | Scribe edge store only |
 
 A **spec** is a rough draft (markdown body plus API metadata). It stays on the board until an agent sets status to `done`. Humans never archive or resolve from the UI; they read active work and drill into detail. A direct link (`#specs/{slug}`) still loads a completed record for read-only review.
 
