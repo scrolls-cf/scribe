@@ -109,6 +109,14 @@ export function lockSummary(lock) {
   return `Held by ${lock.agent_id}`;
 }
 
+/** Short lock label for tree rows (full text lives in detail toolbar + aria-label). */
+export function lockTreeSummary(lock) {
+  if (!lock?.agent_id) return "Held";
+  const id = String(lock.agent_id);
+  const short = id.length > 14 ? `${id.slice(0, 10)}…` : id;
+  return `Held · ${short}`;
+}
+
 export function specLinkLabel(spec) {
   return [
     spec.title,

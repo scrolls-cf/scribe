@@ -2,6 +2,7 @@ import {
   apiFetch,
   formatAge,
   lockSummary,
+  lockTreeSummary,
   planIdFromPath,
   planBoardStatus,
   planBoardStatusLabel,
@@ -280,15 +281,16 @@ function createSpecRow(spec) {
   btn.setAttribute("aria-label", specLinkLabel(spec));
   btn.setAttribute("aria-pressed", spec.slug === activeSlug ? "true" : "false");
 
-  const lockText = lockSummary(spec.lock);
+  const lockText = lockTreeSummary(spec.lock);
 
   btn.innerHTML = `
+    <span class="work-row-kind">Spec</span>
     <span class="work-row-main">
       <span class="work-row-title">${escape(spec.title)}</span>
       <span class="work-row-slug">${escape(spec.slug)}</span>
     </span>
     <span class="work-row-meta work-row-meta--inline">
-      ${spec.lock ? `<span class="lock-badge" data-held="true">${escape(lockText)}</span>` : ""}
+      ${spec.lock ? `<span class="lock-badge" data-held="true" title="${escape(lockSummary(spec.lock))}">${escape(lockText)}</span>` : ""}
       <span class="status-pill" data-status="${escape(specBoardStatus(spec))}">${escape(specBoardStatusLabel(spec))}</span>
       <span class="work-row-age sr-only">Updated ${formatAge(spec.updated_at)}</span>
     </span>
@@ -322,10 +324,11 @@ function createImplRow(plan, { nested = false } = {}) {
     ? `<span class="work-row-phase">${escape(plan.active_phase.title)}</span>`
     : "";
   const lockLine = plan.lock
-    ? `<span class="lock-badge">${escape(lockSummary(plan.lock))}</span>`
+    ? `<span class="lock-badge" title="${escape(lockSummary(plan.lock))}">${escape(lockTreeSummary(plan.lock))}</span>`
     : "";
 
   btn.innerHTML = `
+    <span class="work-row-kind">Implementation</span>
     <span class="work-row-main">
       <span class="work-row-title">${escape(plan.title)}</span>
       ${activePhase}
