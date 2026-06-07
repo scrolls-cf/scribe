@@ -6,8 +6,8 @@ Operational planning dashboard on the devscrolls dark slate base. Full-width boa
 
 ## Layout
 
-- **Default:** specs column + errors rail (edge to edge).
-- **Detail open:** compact spec list | inline spec detail | errors rail.
+- **Default:** specs column; errors rail when unresolved failures exist.
+- **Detail open:** compact spec list | inline spec detail | errors rail (when present).
 - **Routing:** hash `#specs/{slug}` for drill-down without navigation; `/specs/{slug}` redirects to board hash.
 
 ## Colors
@@ -43,7 +43,7 @@ Scale: page title `clamp(1.5rem, 3vw, 2rem)`, spec titles `1.125rem`, body `1rem
 - **Spec row:** CSS grid rail — title/slug in left column; status pill, lock badge, updated age stacked in right column. Below 540px (full-width list), meta flows in a single column under the title row. Detail open compacts rows to title-only.
 - **Inline spec detail:** sticky title row (status meta inline), readable markdown below
 - **Errors panel:** scrollable list of unresolved errors with source, message, age
-- **Empty states:** `—` for zero active specs; **Clear** for zero unresolved errors
+- **Empty states:** `—` plus muted hint for zero active specs; errors rail hidden when the board is clear
 
 ## Status language
 

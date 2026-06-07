@@ -47,7 +47,7 @@ A **spec** is a rough draft (markdown body plus API metadata). It stays on the b
 | Panel | Empty display | Meaning |
 |-------|---------------|---------|
 | Active specs | `—` | Nothing in flight (no queued work, or all work completed) |
-| Errors board | `Clear` | No unresolved org failures; panel stays visible as a structural anchor |
+| Errors board | Hidden | No unresolved org failures; the rail appears only when errors exist |
 
 Empty states are not CTAs. Agents create specs, update status, resolve errors, and mark completion through the API.
 

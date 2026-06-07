@@ -105,24 +105,31 @@ button:disabled {
   z-index: var(--z-sticky);
   background: var(--color-bg);
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .scribe-brand {
   display: inline-flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: var(--space-3);
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 auto;
   color: var(--color-ink);
 }
 
 .scribe-wordmark {
   margin: 0;
+  min-width: 0;
   font-size: clamp(1.25rem, 2vw, 1.5rem);
   font-weight: 800;
   letter-spacing: -0.03em;
   line-height: 1;
+  overflow-wrap: anywhere;
   text-shadow:
-    0 0 28px oklch(0.823 0.075 209 / 0.28),
-    0 0 56px oklch(0.699 0.144 290 / 0.12);
+    0 0 20px oklch(0.823 0.075 209 / 0.28),
+    0 0 40px oklch(0.699 0.144 290 / 0.12);
 }
 
 .scribe-wordmark--sm {
@@ -146,16 +153,19 @@ button:disabled {
 }
 
 .scribe-subtitle {
+  min-width: 0;
   color: var(--color-ink-secondary);
   font-size: var(--text-sm);
   font-weight: 400;
+  overflow-wrap: anywhere;
 }
 
 .scribe-kbd-hint {
   margin: 0;
   font-size: var(--text-xs);
-  color: var(--color-muted);
+  color: var(--color-ink-secondary);
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .scribe-kbd-hint kbd {
@@ -190,6 +200,14 @@ button:disabled {
   grid-template-columns: minmax(9rem, 13rem) minmax(0, 1.85fr) minmax(13rem, 17rem);
 }
 
+.scribe-main:not([data-errors-visible="true"]) {
+  grid-template-columns: 1fr;
+}
+
+.scribe-main[data-detail-open="true"]:not([data-errors-visible="true"]) {
+  grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr);
+}
+
 @media (max-width: 960px) {
   .scribe-main[data-detail-open="true"] {
     grid-template-columns: 1fr;
@@ -210,6 +228,13 @@ button:disabled {
 
   .scribe-main[data-detail-open="true"] .scribe-panel--errors {
     grid-area: errors;
+  }
+
+  .scribe-main[data-detail-open="true"]:not([data-errors-visible="true"]) {
+    grid-template-rows: auto auto;
+    grid-template-areas:
+      "detail"
+      "specs";
   }
 
   .scribe-panel--specs {
@@ -260,7 +285,7 @@ button:disabled {
   min-height: 0;
   overflow-y: auto;
   margin: calc(-1 * var(--space-5)) 0;
-  padding: var(--space-5) var(--space-3);
+  padding: var(--space-5) max(var(--space-4), 0.5em);
 }
 
 .scribe-panel--detail {
@@ -361,7 +386,7 @@ button:disabled {
 .panel-empty-hint {
   margin-top: var(--space-2) !important;
   font-size: var(--text-xs) !important;
-  color: var(--color-muted) !important;
+  color: var(--color-ink-secondary) !important;
   max-width: 36ch;
 }
 
@@ -390,6 +415,7 @@ button:disabled {
   align-items: start;
   gap: var(--space-4);
   width: 100%;
+  min-height: 2.75rem;
   text-align: left;
   padding: var(--space-4) var(--space-3);
   background: transparent;
@@ -417,7 +443,7 @@ button:disabled {
 
 .scribe-main[data-detail-open="true"] .spec-card {
   display: block;
-  padding: var(--space-3) var(--space-2);
+  padding: var(--space-4) max(var(--space-4), 0.5em);
 }
 
 .scribe-main[data-detail-open="true"] .spec-card-head h3 {
@@ -425,11 +451,26 @@ button:disabled {
 }
 
 .scribe-main[data-detail-open="true"] .spec-meta {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.scribe-main[data-detail-open="true"] .spec-meta .lock-badge {
+  padding: 0.15rem max(0.5rem, 0.5em);
+}
+
+.scribe-main[data-detail-open="true"] .spec-meta > :not(.lock-badge) {
   display: none;
 }
 
 .scribe-main[data-detail-open="true"] .spec-card-head .status-pill {
-  display: none;
+  display: inline-flex;
+  margin-top: var(--space-1);
+  font-size: 0.65rem;
+  padding: 0.15rem max(0.5rem, 0.5em);
 }
 
 .spec-card:focus-visible {
@@ -607,7 +648,7 @@ button:disabled {
 .error-age {
   margin-top: var(--space-1);
   font-size: var(--text-xs);
-  color: var(--color-muted);
+  color: var(--color-ink-secondary);
 }
 
 .error-actions {
@@ -615,7 +656,10 @@ button:disabled {
 }
 
 .error-spec-link {
-  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0.5rem 0;
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--color-primary);
@@ -772,7 +816,12 @@ button:disabled {
 .spec-detail-inline .prose,
 .plan-detail-inline .prose {
   margin-top: 0;
-  max-width: 70ch;
+  max-width: min(72ch, 100%);
+  min-width: 0;
+}
+
+.scribe-panel--detail .prose :is(p, li, dd, blockquote, td, th) {
+  overflow-wrap: anywhere;
 }
 
 .prose-spec-line {
@@ -780,7 +829,7 @@ button:disabled {
   grid-template-columns: minmax(5.5rem, 7rem) minmax(0, 1fr);
   gap: var(--space-2) var(--space-4);
   margin: 0 0 var(--space-2);
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-4);
   background: color-mix(in oklch, var(--color-surface) 55%, transparent);
   border: 1px solid var(--color-border);
   font-size: var(--text-xs);
@@ -989,7 +1038,7 @@ button:disabled {
 
 .prose blockquote {
   margin: var(--space-4) 0;
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-4);
   background: color-mix(in oklch, var(--color-surface) 88%, var(--color-primary) 12%);
   border: 1px solid var(--color-border);
 }
@@ -1012,10 +1061,11 @@ button:disabled {
 
 .prose-table th,
 .prose-table td {
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4);
   border: 1px solid var(--color-border);
   text-align: left;
   vertical-align: top;
+  overflow-wrap: anywhere;
 }
 
 .prose-table th {
@@ -1190,10 +1240,13 @@ button:disabled {
 }
 
 .plan-progress-bar {
+  width: 100%;
   height: 100%;
   border-radius: inherit;
   background: var(--color-primary);
-  transition: width var(--duration-fast) var(--ease-out);
+  transform: scaleX(var(--plan-progress, 0));
+  transform-origin: left center;
+  transition: transform var(--duration-fast) var(--ease-out);
 }
 
 .scribe-main[data-detail-open="true"] .plan-card .plan-progress,
@@ -1241,7 +1294,10 @@ button:disabled {
 }
 
 .spec-plan-link {
-  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0.25rem 0;
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--color-primary);
@@ -1280,7 +1336,10 @@ button:disabled {
 }
 
 .plan-spec-link {
-  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0.25rem 0;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   font-weight: 600;

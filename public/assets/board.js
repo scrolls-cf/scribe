@@ -30,10 +30,6 @@ const PLAN_LOADING = [
   "Reading pushed plans from the edge store…",
   "Checking phase progress on active plans…",
 ];
-const ERROR_LOADING = [
-  "Loading unresolved errors…",
-  "Scanning the errors board…",
-];
 const DETAIL_LOADING = [
   "Loading from scribe…",
   "Fetching detail from the edge store…",
@@ -45,9 +41,8 @@ const specLoading = document.getElementById("spec-loading");
 const planList = document.getElementById("plan-list");
 const planEmpty = document.getElementById("plan-empty");
 const planLoading = document.getElementById("plan-loading");
+const errorsPanel = document.getElementById("errors-panel");
 const errorList = document.getElementById("error-list");
-const errorEmpty = document.getElementById("error-empty");
-const errorLoading = document.getElementById("error-loading");
 const boardError = document.getElementById("board-error");
 const boardMain = document.getElementById("board-main");
 const specCount = document.getElementById("spec-count");
@@ -58,6 +53,7 @@ const planDetailRoot = document.getElementById("plan-detail");
 const detailLoading = document.getElementById("spec-detail-loading");
 const specPlansSection = document.getElementById("spec-plans");
 const specPlanLinks = document.getElementById("spec-plan-links");
+const errorsLive = document.getElementById("errors-live");
 
 let activeSlug = null;
 let activePlanId = null;
@@ -84,6 +80,24 @@ function hideBoardError() {
 function setLoading(panel, loading) {
   if (!panel) return;
   panel.hidden = !loading;
+}
+
+function setErrorsPanelVisible(visible) {
+  if (errorsPanel) errorsPanel.hidden = !visible;
+  if (!boardMain) return;
+  if (visible) boardMain.dataset.errorsVisible = "true";
+  else {
+    delete boardMain.dataset.errorsVisible;
+    if (errorsLive) errorsLive.textContent = "";
+  }
+}
+
+function announceErrors(count) {
+  if (!errorsLive) return;
+  errorsLive.textContent =
+    count > 0
+      ? `${count} unresolved error${count === 1 ? "" : "s"} on the errors board`
+      : "";
 }
 
 function escape(text) {
@@ -268,8 +282,8 @@ function renderPlans(plans) {
       </div>
       <div class="spec-meta">
         <span class="plan-progress-label">${escape(planProgressLabel(plan))}</span>
-        <div class="plan-progress" role="presentation">
-          <div class="plan-progress-bar" style="width: ${ratio}%"></div>
+        <div class="plan-progress" role="presentation" style="--plan-progress: ${ratio / 100}">
+          <div class="plan-progress-bar"></div>
         </div>
         <span class="lock-badge" ${lockOpen ? 'data-open="true"' : ""}>${escape(lockText)}</span>
         <span class="spec-meta-age">${formatAge(plan.updated_at)}</span>
@@ -290,19 +304,19 @@ function renderPlans(plans) {
 }
 
 function renderErrors(errors) {
-  if (!errorList || !errorEmpty) return;
-  setLoading(errorLoading, false);
+  if (!errorList) return;
   errorList.replaceChildren();
   cachedErrors = errors;
 
   if (!errors.length) {
     errorList.hidden = true;
-    errorEmpty.hidden = false;
+    setErrorsPanelVisible(false);
     return;
   }
 
-  errorEmpty.hidden = true;
+  setErrorsPanelVisible(true);
   errorList.hidden = false;
+  announceErrors(errors.length);
 
   const knownSlugs = cachedSpecs.map((spec) => spec.slug);
 
@@ -468,16 +482,14 @@ async function loadBoard() {
   hideBoardError();
   setLoadingText(specLoading, SPEC_LOADING);
   setLoadingText(planLoading, PLAN_LOADING);
-  setLoadingText(errorLoading, ERROR_LOADING);
   setLoading(specLoading, true);
   setLoading(planLoading, true);
-  setLoading(errorLoading, true);
+  setErrorsPanelVisible(false);
   if (specList) specList.hidden = true;
   if (planList) planList.hidden = true;
   if (errorList) errorList.hidden = true;
   if (specEmpty) specEmpty.hidden = true;
   if (planEmpty) planEmpty.hidden = true;
-  if (errorEmpty) errorEmpty.hidden = true;
 
   try {
     const [specData, planData, errorData] = await Promise.all([
@@ -491,7 +503,6 @@ async function loadBoard() {
   } catch (e) {
     setLoading(specLoading, false);
     setLoading(planLoading, false);
-    setLoading(errorLoading, false);
     const msg =
       e instanceof TypeError
         ? "Could not reach scribe. Check your connection and try again."
@@ -499,7 +510,7 @@ async function loadBoard() {
     showBoardError(msg);
     if (specEmpty) specEmpty.hidden = true;
     if (planEmpty) planEmpty.hidden = true;
-    if (errorEmpty) errorEmpty.hidden = true;
+    setErrorsPanelVisible(false);
     if (specList) specList.hidden = true;
     if (planList) planList.hidden = true;
     if (errorList) errorList.hidden = true;
