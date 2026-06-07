@@ -42,8 +42,9 @@ Scale: page title `clamp(1.5rem, 3vw, 2rem)`, spec titles `1.125rem`, body `1rem
 
 - **App shell:** sticky blurred header, mono `scribe` mark + `devscrolls` platform pill, keyboard hint strip
 - **Atmosphere:** 24px grid mask (not radial glow), surface elevation via `--shadow-raised`
-- **Work tree:** spec groups as rounded cards (`work-group`); rows with rounded hit targets. Two row types — `work-row--spec` and `work-row--impl`. Implementations nest with indentation only. Detached groups use **Spec completed · {slug}** in mono. Detail open compacts tree rail.
-- **Status:** pill + dot (`status-pill::before`); lock badges as mono capsules
+- **Work tree:** flat ledger groups (`work-group` top borders only); three-column rows (kind | title | status). Two row types — `work-row--spec` and `work-row--impl`. Implementations nest with padding tint only, no side stripes. Detached groups use **Spec completed · {slug}** in mono. Detail open compacts tree rail.
+- **Status:** mono dot + label on tree rows; toolbar keeps subtle pill chrome
+- **Craft pipeline:** optional `gemini-craft.mjs` with `gemini-3.1-flash-lite` for text direction (no image mocks; use `gemini-3.1-flash-image` for comps)
 - **Spec row:** title, slug, status pill; lock badge only when held (age in screen-reader label)
 - **Implementation row:** indented, title, inline progress bar, status pill
 - **Detail pane:** empty state when idle; breadcrumb (`spec › implementation`) when viewing an implementation; sticky title row, readable markdown below
