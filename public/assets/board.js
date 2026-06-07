@@ -149,11 +149,43 @@ function setBusy(busy) {
   if (boardMain) boardMain.setAttribute("aria-busy", busy ? "true" : "false");
 }
 
-function showBoardError(message) {
+function appendRetryButton(parent, label, onRetry) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "btn-ghost banner-retry";
+  btn.textContent = label;
+  btn.addEventListener("click", onRetry);
+  parent.append(btn);
+  return btn;
+}
+
+function showBoardError(message, onRetry) {
   if (!boardError) return;
-  boardError.textContent = message;
+  boardError.replaceChildren();
+  const text = document.createElement("span");
+  text.className = "banner-error-text";
+  text.textContent = message;
+  boardError.append(text);
+  if (onRetry) appendRetryButton(boardError, "Retry load", onRetry);
   boardError.hidden = false;
   boardError.setAttribute("aria-live", "assertive");
+}
+
+function showDetailError(message, onRetry) {
+  if (!detailLoading) return;
+  detailLoading.replaceChildren();
+  detailLoading.classList.add("panel-status--error");
+  const text = document.createElement("span");
+  text.textContent = message;
+  detailLoading.append(text);
+  if (onRetry) appendRetryButton(detailLoading, "Retry", onRetry);
+  detailLoading.hidden = false;
+}
+
+function clearDetailError() {
+  if (!detailLoading) return;
+  detailLoading.classList.remove("panel-status--error");
+  detailLoading.replaceChildren();
 }
 
 function hideBoardError() {
@@ -537,6 +569,7 @@ async function openSpec(slug, { updateHash = true } = {}) {
   renderWorkBoard(cachedSpecs, cachedPlans);
   renderErrors(cachedErrors);
   if (detailLoading) {
+    clearDetailError();
     setLoadingText(detailLoading, DETAIL_LOADING);
     detailLoading.hidden = false;
   }
@@ -553,7 +586,10 @@ async function openSpec(slug, { updateHash = true } = {}) {
     const spec = data.spec;
     if (!spec) throw new Error("Spec not found");
 
-    if (detailLoading) detailLoading.hidden = true;
+    if (detailLoading) {
+      clearDetailError();
+      detailLoading.hidden = true;
+    }
     if (specDetailRoot) {
       specDetailRoot.hidden = false;
       renderSpecDetail(specDetailRoot, spec);
@@ -562,10 +598,7 @@ async function openSpec(slug, { updateHash = true } = {}) {
     detailPanel?.scrollTo(0, 0);
     focusDetailOnMobile();
   } catch (e) {
-    if (detailLoading) {
-      detailLoading.textContent = e.message || "Could not load spec";
-      detailLoading.hidden = false;
-    }
+    showDetailError(e.message || "Could not load spec", () => openSpec(slug, { updateHash: false }));
   }
 }
 
@@ -578,6 +611,7 @@ async function openPlan(id, { updateHash = true } = {}) {
   renderWorkBoard(cachedSpecs, cachedPlans);
   renderErrors(cachedErrors);
   if (detailLoading) {
+    clearDetailError();
     setLoadingText(detailLoading, DETAIL_LOADING);
     detailLoading.hidden = false;
   }
@@ -594,7 +628,10 @@ async function openPlan(id, { updateHash = true } = {}) {
     const plan = data.plan;
     if (!plan) throw new Error("Plan not found");
 
-    if (detailLoading) detailLoading.hidden = true;
+    if (detailLoading) {
+      clearDetailError();
+      detailLoading.hidden = true;
+    }
     if (planDetailRoot) {
       planDetailRoot.hidden = false;
       renderPlanDetail(planDetailRoot, plan);
@@ -617,10 +654,7 @@ async function openPlan(id, { updateHash = true } = {}) {
     detailPanel?.scrollTo(0, 0);
     focusDetailOnMobile();
   } catch (e) {
-    if (detailLoading) {
-      detailLoading.textContent = e.message || "Could not load plan";
-      detailLoading.hidden = false;
-    }
+    showDetailError(e.message || "Could not load plan", () => openPlan(id, { updateHash: false }));
   }
 }
 
@@ -648,7 +682,7 @@ async function loadBoard() {
       e instanceof TypeError
         ? "Could not reach scribe. Check your connection and try again."
         : e.message || "Could not load board";
-    showBoardError(msg);
+    showBoardError(msg, () => loadBoard());
     if (workEmpty) workEmpty.hidden = true;
     setErrorsPanelVisible(false);
     if (workList) workList.hidden = true;

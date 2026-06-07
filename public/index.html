@@ -35,7 +35,7 @@
     <span class="sr-only">Keyboard shortcuts: R refreshes the board; Escape or selecting the same row again closes detail.</span>
   </header>
 
-  <p id="board-error" class="banner-error" role="alert" hidden></p>
+  <div id="board-error" class="banner-error" role="alert" hidden></div>
 
   <main class="scribe-main" id="board-main" aria-busy="true" aria-keyshortcuts="r Escape">
     <section class="scribe-panel scribe-panel--tree" aria-labelledby="work-heading">
@@ -87,6 +87,10 @@
           <p id="plan-done-notice" class="spec-done-notice" hidden>Completed implementation. Not on the active board.</p>
           <div id="plan-phase-summary" class="plan-phase-summary" hidden></div>
         </header>
+        <section id="plan-user-instructions" class="plan-user-instructions" hidden aria-labelledby="plan-user-instructions-heading">
+          <h3 id="plan-user-instructions-heading" class="plan-user-instructions-title">Your next steps</h3>
+          <div id="plan-user-instructions-body" class="prose plan-user-instructions-body"></div>
+        </section>
         <div id="plan-body" class="prose"></div>
       </article>
     </section>
