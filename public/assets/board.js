@@ -418,6 +418,10 @@ function renderWorkBoard(specs, plans) {
     const units = activeWorkUnitCount(specs, plans);
     workCount.textContent = String(units);
     workCount.hidden = !units;
+    workCount.setAttribute(
+      "aria-label",
+      units === 1 ? "1 active work unit" : `${units} active work units`,
+    );
   }
 
   for (const spec of specs) {
