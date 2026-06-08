@@ -13,14 +13,17 @@ export function prefersReducedMotion() {
 /**
  * @param {ParentNode | null | undefined} root
  */
-export function pulseViewToggle(root) {
+/**
+ * @param {ParentNode | null | undefined} root
+ */
+export function pulseIterationChip(root) {
 	if (prefersReducedMotion()) return;
-	const toggle = root?.querySelector(".view-toggle");
-	if (!toggle) return;
-	toggle.classList.add("view-toggle--pulse");
-	toggle.addEventListener(
+	const chip = root?.querySelector(".status-pill--iteration");
+	if (!chip) return;
+	chip.classList.add("status-pill--pulse");
+	chip.addEventListener(
 		"animationend",
-		() => toggle.classList.remove("view-toggle--pulse"),
+		() => chip.classList.remove("status-pill--pulse"),
 		{ once: true },
 	);
 }

@@ -83,7 +83,7 @@ export async function apiFetchWithEtag(segment, options = {}) {
     err.data = data;
     throw err;
   }
-  return { data, etag: res.headers.get("etag") };
+  return { data, etag: normalizeEtagHeader(res.headers.get("etag")) };
 }
 
 export function agentId() {
@@ -424,33 +424,5 @@ export async function fetchPlanDiff(id, params = {}) {
   if (params.head) qs.set("head", params.head);
   const q = qs.toString();
   return apiFetch(`plans/${encodeURIComponent(id)}/diff${q ? `?${q}` : ""}`);
-}
-
-/**
- * @param {{ revisions_count?: number, last_revision?: { lines_added?: number, lines_removed?: number } | null }} record
- */
-export function revisionListGlyph(record) {
-  const count = record?.revisions_count ?? 0;
-  if (count <= 0) return null;
-  const lr = record.last_revision;
-  if (lr && (lr.lines_added != null || lr.lines_removed != null)) {
-    return `Δ +${lr.lines_added ?? 0} −${lr.lines_removed ?? 0}`;
-  }
-  return `Δ ${count}`;
-}
-
-/** @param {object} spec */
-export function specListShowsRevisionGlyph(spec) {
-  return specReviewLoopActive(spec) && (spec.revisions_count ?? 0) > 0;
-}
-
-/**
- * @param {object} plan
- * @param {object | null | undefined} spec
- */
-export function planListShowsRevisionGlyph(plan, spec) {
-  if ((plan.revisions_count ?? 0) <= 0) return false;
-  if (plan.status === "blocked") return true;
-  return planReviewLoopActive(plan, spec);
 }
 

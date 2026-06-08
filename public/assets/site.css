@@ -1937,16 +1937,6 @@ button:disabled {
   font-variant-numeric: tabular-nums;
 }
 
-.work-row-revision {
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-ink-secondary);
-  padding: 0.1rem 0.35rem;
-  border-radius: 4px;
-  border: 1px solid var(--color-border);
-  white-space: nowrap;
-}
-
 @keyframes view-toggle-pulse {
   0%,
   100% {

@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  fetchRecordEtag,
   lockActivityLabel,
   lockSummary,
   lockTreeSummary,
   mergePlansForActiveSpecs,
+  normalizeEtagHeader,
   partitionCompletedWork,
   planBoardStatus,
   planBoardStatusLabel,
@@ -16,11 +18,9 @@ import {
   specOrchestrationLabels,
   specReviewLoopActive,
   planReviewLoopActive,
+  revisionListMeta,
   revisionSummaryLabel,
-  revisionListGlyph,
   shouldShowDiffToggle,
-  specListShowsRevisionGlyph,
-  planListShowsRevisionGlyph,
   workUnitCount,
 } from "./api.js";
 
@@ -251,31 +251,54 @@ describe("revision loop helpers", () => {
     assert.match(label, /ago|just now/);
   });
 
-  it("revisionListGlyph shows delta meta", () => {
+  it("revisionListMeta hidden when loop inactive or no revisions", () => {
     assert.equal(
-      revisionListGlyph({
-        revisions_count: 2,
-        last_revision: { lines_added: 4, lines_removed: 2 },
-      }),
+      revisionListMeta(
+        { revisions_count: 2, last_revision: { lines_added: 4, lines_removed: 2 } },
+        false,
+      ),
+      null,
+    );
+    assert.equal(revisionListMeta({ revisions_count: 0 }, true), null);
+  });
+
+  it("revisionListMeta formats delta label during loop", () => {
+    assert.equal(
+      revisionListMeta(
+        { revisions_count: 2, last_revision: { lines_added: 4, lines_removed: 2 } },
+        true,
+      ),
       "Δ +4 −2",
     );
+    assert.equal(revisionListMeta({ revisions_count: 1 }, true), "Δ");
   });
+});
 
-  it("specListShowsRevisionGlyph when review pending with revisions", () => {
-    assert.equal(
-      specListShowsRevisionGlyph({ review_gate: "pending", revisions_count: 1 }),
-      true,
-    );
-    assert.equal(
-      specListShowsRevisionGlyph({ review_gate: "passed", revisions_count: 1 }),
-      false,
-    );
+describe("normalizeEtagHeader", () => {
+  it("strips weak prefix and quotes", () => {
+    assert.equal(normalizeEtagHeader('"2026-06-08T12:00:00.000Z"'), "2026-06-08T12:00:00.000Z");
+    assert.equal(normalizeEtagHeader('W/"abc"'), "abc");
+    assert.equal(normalizeEtagHeader(null), null);
   });
+});
 
-  it("planListShowsRevisionGlyph when blocked with revisions", () => {
-    assert.equal(
-      planListShowsRevisionGlyph({ status: "blocked", revisions_count: 1 }, null),
-      true,
-    );
+describe("fetchRecordEtag", () => {
+  it("returns normalized etag from GET response", async () => {
+    const originalFetch = globalThis.fetch;
+    const originalWindow = globalThis.window;
+    globalThis.window = { location: { pathname: "/scribe" } };
+    globalThis.fetch = async (url) => {
+      assert.match(String(url), /\/specs\/ged-a$/);
+      return {
+        ok: true,
+        headers: { get: (name) => (name === "etag" ? '"rev-abc"' : null) },
+      };
+    };
+    try {
+      assert.equal(await fetchRecordEtag("specs/ged-a"), "rev-abc");
+    } finally {
+      globalThis.fetch = originalFetch;
+      globalThis.window = originalWindow;
+    }
   });
 });
