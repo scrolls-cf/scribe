@@ -102,7 +102,7 @@ export function specBoardStatus(spec) {
 }
 
 export function specBoardStatusLabel(spec) {
-  return statusLabel(specBoardStatus(spec));
+  return `Intent · ${statusLabel(specBoardStatus(spec))}`;
 }
 
 export function lockSummary(lock) {
@@ -128,6 +128,32 @@ export function lockTreeSummary(lock) {
   return `Held · ${short}`;
 }
 
+export function workspaceShortPath(path) {
+  if (!path) return "";
+  const parts = String(path).replace(/\\/g, "/").split("/").filter(Boolean);
+  if (parts.length <= 2) return parts.join("/");
+  return `…/${parts.slice(-2).join("/")}`;
+}
+
+/** @param {{ id?: string, branch?: string, worktree_path?: string, scribe_worker_root?: string, scrollsmatrix_worker_root?: string }} ws */
+export function workspaceEnvSnippet(ws) {
+  if (!ws?.worktree_path) return "";
+  return [
+    `GED_WORKSPACE_ROOT=${ws.worktree_path}`,
+    `GED_WORKSPACE_BRANCH=${ws.branch ?? ""}`,
+    `GED_RESUME_SLUG=${ws.id ?? ""}`,
+    ws.scribe_worker_root ? `SCRIBE_WORKER_ROOT=${ws.scribe_worker_root}` : null,
+    ws.scrollsmatrix_worker_root ? `SCROLLSMATRIX_WORKER_ROOT=${ws.scrollsmatrix_worker_root}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function workspaceTreeSummary(ws) {
+  if (!ws?.worktree_path) return "";
+  return `Workspace · ${workspaceShortPath(ws.worktree_path)}`;
+}
+
 export function specLinkLabel(spec) {
   return [
     spec.title,
@@ -137,26 +163,50 @@ export function specLinkLabel(spec) {
   ].join(", ");
 }
 
+/** @param {{ phases_done?: number, phases_total?: number }} plan */
+export function planPhasesComplete(plan) {
+  const total = plan.phases_total ?? 0;
+  const done = plan.phases_done ?? 0;
+  return total > 0 && done >= total;
+}
+
 /** Board/detail status for plans (includes build progress). */
 export function planBoardStatus(plan) {
-  if (plan.status === "done") return "done";
+  if (plan.status === "done" || planPhasesComplete(plan)) return "done";
   if (plan.status === "blocked") return "blocked";
-  if (plan.completion_ratio > 0 && plan.completion_ratio < 1) return "in_progress";
+  if (plan.status === "in_progress") return "in_progress";
+  if (plan.active_phase?.status === "active") return "in_progress";
+  const ratio = plan.completion_ratio ?? 0;
+  if (ratio > 0 && ratio < 1) return "in_progress";
   return "ready";
 }
 
 export function planBoardStatusLabel(plan) {
-  return statusLabel(planBoardStatus(plan));
+  return `Build · ${statusLabel(planBoardStatus(plan))}`;
 }
 
 export function planProgressLabel(plan) {
   if (plan.phases_total > 0) {
-    return `${plan.phases_done}/${plan.phases_total} phases`;
+    const base = `${plan.phases_done}/${plan.phases_total} phases`;
+    if (planPhasesComplete(plan)) return `${base} · complete`;
+    return base;
   }
   if (plan.tasks_total > 0) {
     return `${plan.tasks_done}/${plan.tasks_total} tasks`;
   }
   return "No tasks yet";
+}
+
+/**
+ * Active board plans: not-done plans plus done plans still linked to an on-board spec.
+ * @param {Array<{ status?: string, spec_slug?: string }>} allPlans
+ * @param {Array<{ slug: string }>} activeSpecs
+ */
+export function mergePlansForActiveSpecs(allPlans, activeSpecs) {
+  const slugs = new Set(activeSpecs.map((s) => s.slug));
+  return allPlans.filter(
+    (p) => p.status !== "done" || slugs.has(p.spec_slug),
+  );
 }
 
 export function planLinkLabel(plan) {

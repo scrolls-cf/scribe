@@ -3,7 +3,10 @@ import {
   formatAge,
   lockSummary,
   lockTreeSummary,
+  workspaceEnvSnippet,
+  workspaceTreeSummary,
   planIdFromPath,
+  mergePlansForActiveSpecs,
   planBoardStatus,
   planBoardStatusLabel,
   planLinkLabel,
@@ -13,6 +16,10 @@ import {
   specBoardStatus,
   specBoardStatusLabel,
 } from "./api.js";
+import {
+  isSmokeArtifact,
+  resolveLinkedPlanRefs,
+} from "./footer-plan.js";
 import {
   devNote,
   setLoadingText,
@@ -52,9 +59,13 @@ let activeSlug = null;
 let activePlanId = null;
 let cachedSpecs = [];
 let cachedPlans = [];
+/** @type {Map<string, object>} */
+let cachedWorkspaces = new Map();
 let lastFocusedButton = null;
 let workFilter = "all";
 let workFilterSelect = null;
+let showSmoke = false;
+let smokeToggle = null;
 
 function isMobileDetail() {
   return window.matchMedia("(max-width: 768px)").matches;
@@ -112,7 +123,38 @@ function filterBoardData(specs, plans) {
   return { specs: filteredSpecs, plans: filteredPlans };
 }
 
-function syncWorkFilterControl(total) {
+/** Hide ged-smoke-* artifacts from active board unless showSmoke is on. */
+function applySmokeFilter(specs, plans) {
+  if (showSmoke) return { specs, plans };
+  return {
+    specs: specs.filter((s) => !isSmokeArtifact(s)),
+    plans: plans.filter((p) => !isSmokeArtifact(p)),
+  };
+}
+
+function syncSmokeToggle() {
+  if (!workBoardHint) return;
+  if (!smokeToggle) {
+    smokeToggle = document.createElement("label");
+    smokeToggle.className = "work-smoke-toggle";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.className = "work-smoke-toggle-input";
+    input.setAttribute("aria-label", "Show smoke test artifacts");
+    input.addEventListener("change", () => {
+      showSmoke = input.checked;
+      renderWorkBoard(cachedSpecs, cachedPlans);
+    });
+    smokeToggle.append(input, document.createTextNode(" Show smoke"));
+    workBoardHint.append(smokeToggle);
+  }
+  smokeToggle.querySelector("input").checked = showSmoke;
+}
+
+function syncBoardControls(total) {
+  syncSmokeToggle();
+  if (!workHeading) return;
+
   if (total <= WORK_FILTER_THRESHOLD) {
     if (workFilterSelect) {
       workFilterSelect.remove();
@@ -121,7 +163,7 @@ function syncWorkFilterControl(total) {
     }
     return;
   }
-  if (!workFilterSelect && workHeading) {
+  if (!workFilterSelect) {
     workFilterSelect = document.createElement("select");
     workFilterSelect.id = "work-filter";
     workFilterSelect.className = "work-filter";
@@ -274,6 +316,7 @@ function setBreadcrumb(parts) {
       btn.type = "button";
       btn.className = "detail-breadcrumb-link";
       btn.textContent = part.label;
+      if (part.title) btn.title = part.title;
       btn.addEventListener("click", part.onClick);
       detailBreadcrumb.append(btn);
     } else {
@@ -286,8 +329,13 @@ function setBreadcrumb(parts) {
   }
 }
 
+function workspaceForSlug(slug) {
+  return cachedWorkspaces.get(slug) ?? null;
+}
+
 function createSpecRow(spec) {
   const linkedPlans = plansForSpec(spec.slug);
+  const workspace = workspaceForSlug(spec.slug);
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "work-row work-row--spec";
@@ -300,16 +348,27 @@ function createSpecRow(spec) {
   btn.setAttribute("aria-pressed", spec.slug === activeSlug ? "true" : "false");
 
   const lockText = lockTreeSummary(spec.lock);
+  const workspaceBadge = workspace
+    ? `<span class="workspace-badge" title="${escape(workspace.worktree_path)}">${escape(workspaceTreeSummary(workspace))}</span>`
+    : "";
+  const rollup =
+    linkedPlans.length === 1 && !linkedPlans[0]._footerOnly
+      ? `<span class="work-row-plan-rollup">${escape(planProgressLabel(linkedPlans[0]))}${linkedPlans[0].active_phase?.title ? ` · ${escape(linkedPlans[0].active_phase.title)}` : ""}</span>`
+      : linkedPlans.length > 1
+        ? `<span class="work-row-plan-rollup">${linkedPlans.length} plans</span>`
+        : "";
 
   btn.innerHTML = `
     <span class="work-row-kind">Spec</span>
     <span class="work-row-main">
       <span class="work-row-title">${escape(spec.title)}</span>
       <span class="work-row-slug">${escape(spec.slug)}</span>
+      ${rollup}
     </span>
     <span class="work-row-meta work-row-meta--inline">
       ${spec.lock ? `<span class="lock-badge" data-held="true" title="${escape(lockSummary(spec.lock))}">${escape(lockText)}</span>` : ""}
-      <span class="status-pill" data-status="${escape(specBoardStatus(spec))}">${escape(specBoardStatusLabel(spec))}</span>
+      ${workspaceBadge}
+      <span class="status-pill status-pill--intent" data-status="${escape(specBoardStatus(spec))}">${escape(specBoardStatusLabel(spec))}</span>
       <span class="work-row-age sr-only">Updated ${formatAge(spec.updated_at)}</span>
     </span>
   `;
@@ -344,6 +403,10 @@ function createImplRow(plan, { nested = false } = {}) {
   const lockLine = plan.lock
     ? `<span class="lock-badge" title="${escape(lockSummary(plan.lock))}">${escape(lockTreeSummary(plan.lock))}</span>`
     : "";
+  const workspace = workspaceForSlug(plan.spec_slug);
+  const workspaceBadge = workspace
+    ? `<span class="workspace-badge" title="${escape(workspace.worktree_path)}">${escape(workspaceTreeSummary(workspace))}</span>`
+    : "";
 
   btn.innerHTML = `
     <span class="work-row-kind">Implementation</span>
@@ -359,7 +422,8 @@ function createImplRow(plan, { nested = false } = {}) {
     </span>
     <span class="work-row-meta work-row-meta--inline">
       ${lockLine}
-      <span class="status-pill" data-status="${escape(planBoardStatus(plan))}">${escape(planBoardStatusLabel(plan))}</span>
+      ${workspaceBadge}
+      <span class="status-pill status-pill--build" data-status="${escape(planBoardStatus(plan))}">${escape(planBoardStatusLabel(plan))}</span>
     </span>
   `;
 
@@ -395,8 +459,9 @@ function renderWorkBoard(specs, plans) {
   cachedSpecs = specs;
   cachedPlans = plans;
 
-  syncWorkFilterControl(activeWorkUnitCount(specs, plans));
-  const filtered = filterBoardData(specs, plans);
+  const smokeFiltered = applySmokeFilter(specs, plans);
+  syncBoardControls(activeWorkUnitCount(smokeFiltered.specs, smokeFiltered.plans));
+  const filtered = filterBoardData(smokeFiltered.specs, smokeFiltered.plans);
   specs = filtered.specs;
   plans = filtered.plans;
 
@@ -426,7 +491,8 @@ function renderWorkBoard(specs, plans) {
 
   for (const spec of specs) {
     const group = document.createElement("li");
-    group.className = "work-group";
+    group.className = "work-group work-group--spec-plan";
+    group.dataset.specSlug = spec.slug;
     group.append(createSpecRow(spec));
     const nested = plansForSpec(spec.slug);
     if (nested.length) group.append(appendImplList(nested));
@@ -507,7 +573,11 @@ async function openSpec(slug, { updateHash = true } = {}) {
     }
     if (specDetailRoot) {
       specDetailRoot.hidden = false;
-      renderSpecDetail(specDetailRoot, spec);
+      const linkedPlans = resolveLinkedPlanRefs(slug, spec.body, cachedPlans);
+      renderSpecDetail(specDetailRoot, spec, {
+        linkedPlans,
+        workspace: cachedWorkspaces.get(spec.slug) ?? null,
+      });
     }
     document.title = `${spec.title} · scribe · devscrolls`;
     detailPanel?.scrollTo(0, 0);
@@ -551,9 +621,13 @@ async function openPlan(id, { updateHash = true } = {}) {
       renderPlanDetail(planDetailRoot, plan);
     }
 
+    const specMeta = cachedSpecs.find((s) => s.slug === plan.spec_slug);
+    const specTitle = specMeta?.title || plan.spec_slug;
+
     setBreadcrumb([
       {
-        label: plan.spec_slug,
+        label: specTitle,
+        title: plan.spec_slug,
         onClick: () => {
           lastFocusedButton = document.querySelector(
             `[data-plan-id="${CSS.escape(id)}"]`,
@@ -581,11 +655,15 @@ async function loadBoard() {
   if (workEmpty) workEmpty.hidden = true;
 
   try {
-    const [specData, planData] = await Promise.all([
+    const [specData, planData, workspaceData] = await Promise.all([
       apiFetch("specs"),
-      apiFetch("plans"),
+      apiFetch("plans?all=true"),
+      apiFetch("workspaces").catch(() => ({ workspaces: [] })),
     ]);
-    renderWorkBoard(specData.specs || [], planData.plans || []);
+    const specs = specData.specs || [];
+    const plans = mergePlansForActiveSpecs(planData.plans || [], specs);
+    cachedWorkspaces = new Map((workspaceData.workspaces || []).map((ws) => [ws.id, ws]));
+    renderWorkBoard(specs, plans);
   } catch (e) {
     setLoading(workLoading, false);
     const msg =
