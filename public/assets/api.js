@@ -63,6 +63,29 @@ export async function apiFetch(segment, options = {}) {
   return data;
 }
 
+/** Like apiFetch but returns the response ETag header (detail poll). */
+export async function apiFetchWithEtag(segment, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (!headers.has("accept")) headers.set("accept", "application/json");
+  if (options.body && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
+  const res = await fetch(apiPath(segment), { ...options, headers });
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    /* non-json */
+  }
+  if (!res.ok) {
+    const err = new Error(data?.error || `HTTP ${res.status}`);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return { data, etag: res.headers.get("etag") };
+}
+
 export function agentId() {
   const key = "scribe-agent-id";
   let id = localStorage.getItem(key);
@@ -345,6 +368,46 @@ export function shouldShowDiffToggle(record, loopActive) {
   return count > 0;
 }
 
+/** @param {string | null | undefined} header */
+export function normalizeEtagHeader(header) {
+  if (!header) return null;
+  const trimmed = String(header).trim();
+  if (!trimmed || trimmed === "*") return null;
+  return trimmed.replace(/^W\//, "").replace(/^"|"$/g, "");
+}
+
+/**
+ * Lightweight GET for etag polling (response header only).
+ * @param {string} segment
+ */
+export async function fetchRecordEtag(segment) {
+  const headers = new Headers({ accept: "application/json" });
+  const res = await fetch(apiPath(segment), { method: "GET", headers });
+  if (!res.ok) {
+    const err = new Error(`HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return normalizeEtagHeader(res.headers.get("etag"));
+}
+
+/**
+ * Short list-row revision label during active review loops.
+ * @param {{ revisions_count?: number, last_revision?: { lines_added?: number, lines_removed?: number } }} record
+ * @param {boolean} loopActive
+ */
+export function revisionListMeta(record, loopActive) {
+  if (!loopActive) return null;
+  const count = record?.revisions_count ?? 0;
+  if (count <= 0) return null;
+  const rev = record?.last_revision;
+  if (!rev) return "Δ";
+  const added = rev.lines_added ?? 0;
+  const removed = rev.lines_removed ?? 0;
+  if (added === 0 && removed === 0) return "Δ";
+  return `Δ +${added} −${removed}`;
+}
+
 /** @param {string} slug @param {{ base?: string, head?: string }} [params] */
 export async function fetchSpecDiff(slug, params = {}) {
   const qs = new URLSearchParams();
@@ -361,5 +424,33 @@ export async function fetchPlanDiff(id, params = {}) {
   if (params.head) qs.set("head", params.head);
   const q = qs.toString();
   return apiFetch(`plans/${encodeURIComponent(id)}/diff${q ? `?${q}` : ""}`);
+}
+
+/**
+ * @param {{ revisions_count?: number, last_revision?: { lines_added?: number, lines_removed?: number } | null }} record
+ */
+export function revisionListGlyph(record) {
+  const count = record?.revisions_count ?? 0;
+  if (count <= 0) return null;
+  const lr = record.last_revision;
+  if (lr && (lr.lines_added != null || lr.lines_removed != null)) {
+    return `Δ +${lr.lines_added ?? 0} −${lr.lines_removed ?? 0}`;
+  }
+  return `Δ ${count}`;
+}
+
+/** @param {object} spec */
+export function specListShowsRevisionGlyph(spec) {
+  return specReviewLoopActive(spec) && (spec.revisions_count ?? 0) > 0;
+}
+
+/**
+ * @param {object} plan
+ * @param {object | null | undefined} spec
+ */
+export function planListShowsRevisionGlyph(plan, spec) {
+  if ((plan.revisions_count ?? 0) <= 0) return false;
+  if (plan.status === "blocked") return true;
+  return planReviewLoopActive(plan, spec);
 }
 

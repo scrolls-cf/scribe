@@ -1785,6 +1785,10 @@ button:disabled {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .status-pill--pulse {
+    animation: none;
+  }
+
   .plan-progress-bar {
     transition: none;
     background: var(--color-primary);
@@ -1855,6 +1859,36 @@ button:disabled {
   opacity: 0.7;
 }
 
+.work-row-revision-meta {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-accent);
+  flex-shrink: 0;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklch, var(--color-accent) 30%, transparent);
+  background: color-mix(in oklch, var(--color-accent) 10%, transparent);
+}
+
+@keyframes status-pill-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.65;
+    transform: scale(1.05);
+  }
+}
+
+.status-pill--pulse {
+  animation: status-pill-pulse 0.55s ease-in-out 2;
+}
+
 .diff-meta {
   color: var(--color-ink-secondary);
   font-size: 0.8125rem;
@@ -1901,4 +1935,34 @@ button:disabled {
 
 .spec-toolbar-revision-meta {
   font-variant-numeric: tabular-nums;
+}
+
+.work-row-revision {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-secondary);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+@keyframes view-toggle-pulse {
+  0%,
+  100% {
+    box-shadow: none;
+  }
+  50% {
+    box-shadow: 0 0 0 2px oklch(0.72 0.12 255 / 0.55);
+  }
+}
+
+.view-toggle--pulse {
+  animation: view-toggle-pulse 1s ease-in-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view-toggle--pulse {
+    animation: none;
+  }
 }

@@ -1,5 +1,6 @@
 import {
   apiFetch,
+  apiFetchWithEtag,
   fetchPlanDiff,
   fetchSpecDiff,
   formatAge,
@@ -11,16 +12,27 @@ import {
   planIdFromPath,
   mergePlansForActiveSpecs,
   planBoardStatus,
+  revisionListGlyph,
   planBoardStatusLabel,
   planLinkLabel,
+  planListShowsRevisionGlyph,
   planProgressLabel,
+  planReviewLoopActive,
   specLinkLabel,
   specSlugFromPath,
   specBoardStatus,
   specBoardStatusLabel,
+  specListShowsRevisionGlyph,
   specOrchestrationLabels,
+  specReviewLoopActive,
   workUnitCount,
 } from "./api.js";
+import {
+  pulseViewToggle,
+  setDetailPollEtag,
+  startDetailPoll,
+  stopDetailPoll,
+} from "./detail-poll.js";
 import {
   isSmokeArtifact,
   resolveLinkedPlanRefs,
@@ -62,6 +74,7 @@ const WORK_FILTER_THRESHOLD = 8;
 const BOARD_PANE_KEY = "scribe-board-pane";
 const BOARD_PANE_ACTIVE = "active";
 const BOARD_PANE_COMPLETED = "completed";
+const ETAG_POLL_MS = 15_000;
 
 let activeSlug = null;
 let activePlanId = null;
@@ -83,6 +96,9 @@ let boardPane =
   sessionStorage.getItem(BOARD_PANE_KEY) === BOARD_PANE_COMPLETED
     ? BOARD_PANE_COMPLETED
     : BOARD_PANE_ACTIVE;
+let detailEtag = null;
+/** @type {ReturnType<typeof setInterval> | null} */
+let detailEtagPollId = null;
 
 function isMobileDetail() {
   return window.matchMedia("(max-width: 768px)").matches;
@@ -470,6 +486,242 @@ function workspaceForSlug(slug) {
   return cachedWorkspaces.get(slug) ?? null;
 }
 
+function specMetaForPlan(plan) {
+  return (
+    getCurrentSpecs().find((s) => s.slug === plan.spec_slug) ||
+    cachedSpecs.find((s) => s.slug === plan.spec_slug) ||
+    cachedCompletedSpecs.find((s) => s.slug === plan.spec_slug) ||
+    null
+  );
+}
+
+function prefersReducedMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function stopDetailEtagPoll() {
+  if (detailEtagPollId != null) {
+    clearInterval(detailEtagPollId);
+    detailEtagPollId = null;
+  }
+  detailEtag = null;
+}
+
+function pulseIterationChip(root) {
+  if (prefersReducedMotion() || !root) return;
+  const chip = root.querySelector(".status-pill--iteration");
+  if (!chip) return;
+  chip.classList.add("status-pill--pulse");
+  chip.addEventListener(
+    "animationend",
+    () => chip.classList.remove("status-pill--pulse"),
+    { once: true },
+  );
+}
+
+function mergeSpecCache(spec) {
+  const idx = cachedSpecs.findIndex((s) => s.slug === spec.slug);
+  if (idx !== -1) cachedSpecs[idx] = { ...cachedSpecs[idx], ...spec };
+}
+
+function mergePlanCache(plan) {
+  const idx = cachedPlans.findIndex((p) => p.id === plan.id);
+  if (idx !== -1) cachedPlans[idx] = { ...cachedPlans[idx], ...plan };
+}
+
+async function loadSpecDiff(slug, spec) {
+  if ((spec.revisions_count ?? 0) <= 0) return null;
+  try {
+    return await fetchSpecDiff(slug);
+  } catch {
+    return null;
+  }
+}
+
+async function loadPlanDiff(id, plan) {
+  if ((plan.revisions_count ?? 0) <= 0) return null;
+  try {
+    return await fetchPlanDiff(id);
+  } catch {
+    return null;
+  }
+}
+
+async function refreshSpecDetailQuiet({ pulse = false } = {}) {
+  if (!activeSlug || !specDetailRoot || specDetailRoot.hidden) return;
+  try {
+    const data = await apiFetch(`specs/${encodeURIComponent(activeSlug)}`);
+    const spec = data.spec;
+    if (!spec) return;
+
+    mergeSpecCache(spec);
+    detailEtag = spec.etag ?? detailEtag;
+
+    const linkedPlans = resolveLinkedPlanRefs(activeSlug, spec.body, allCachedPlans());
+    const diff = await loadSpecDiff(activeSlug, spec);
+    renderSpecDetail(specDetailRoot, spec, {
+      linkedPlans,
+      workspace: cachedWorkspaces.get(spec.slug) ?? null,
+      diff,
+    });
+
+    if (pulse) pulseIterationChip(specDetailRoot);
+    renderCurrentBoard();
+  } catch {
+    /* quiet refresh */
+  }
+}
+
+async function refreshPlanDetailQuiet({ pulse = false } = {}) {
+  if (!activePlanId || !planDetailRoot || planDetailRoot.hidden) return;
+  try {
+    const data = await apiFetch(`plans/${encodeURIComponent(activePlanId)}`);
+    const plan = data.plan;
+    if (!plan) return;
+
+    mergePlanCache(plan);
+    detailEtag = plan.etag ?? detailEtag;
+
+    const specMeta = specMetaForPlan(plan);
+    const diff = await loadPlanDiff(activePlanId, plan);
+    renderPlanDetail(planDetailRoot, plan, { spec: specMeta, diff });
+
+    if (pulse) pulseIterationChip(planDetailRoot);
+    renderCurrentBoard();
+  } catch {
+    /* quiet refresh */
+  }
+}
+
+function startDetailEtagPoll(kind, id, loopActive) {
+  stopDetailEtagPoll();
+  if (!loopActive || !id) return;
+
+  const segment =
+    kind === "spec"
+      ? `specs/${encodeURIComponent(id)}`
+      : `plans/${encodeURIComponent(id)}`;
+
+  const tick = async () => {
+    if (kind === "spec" && activeSlug !== id) return;
+    if (kind === "plan" && activePlanId !== id) return;
+    try {
+      const etag = await fetchRecordEtag(segment);
+      if (!etag || etag === detailEtag) return;
+      detailEtag = etag;
+      if (kind === "spec") await refreshSpecDetailQuiet({ pulse: true });
+      else await refreshPlanDetailQuiet({ pulse: true });
+    } catch {
+      /* silent poll failure */
+    }
+  };
+
+  detailEtagPollId = setInterval(tick, ETAG_POLL_MS);
+}
+
+function specMetaForPlan(plan) {
+  return (
+    getCurrentSpecs().find((s) => s.slug === plan.spec_slug) ||
+    cachedCompletedSpecs.find((s) => s.slug === plan.spec_slug) ||
+    cachedSpecs.find((s) => s.slug === plan.spec_slug) ||
+    null
+  );
+}
+
+function upsertCachedSpec(spec) {
+  const idx = cachedSpecs.findIndex((s) => s.slug === spec.slug);
+  if (idx >= 0) cachedSpecs[idx] = { ...cachedSpecs[idx], ...spec };
+}
+
+function upsertCachedPlan(plan) {
+  const idx = cachedPlans.findIndex((p) => p.id === plan.id);
+  if (idx >= 0) cachedPlans[idx] = { ...cachedPlans[idx], ...plan };
+}
+
+async function loadSpecDiff(slug, spec) {
+  if ((spec.revisions_count ?? 0) <= 0) return null;
+  try {
+    return await fetchSpecDiff(slug);
+  } catch {
+    return null;
+  }
+}
+
+async function loadPlanDiff(id, plan) {
+  if ((plan.revisions_count ?? 0) <= 0) return null;
+  try {
+    return await fetchPlanDiff(id);
+  } catch {
+    return null;
+  }
+}
+
+function paintSpecDetailView(spec, { diff = null, etagBump = false } = {}) {
+  if (!specDetailRoot) return;
+  if (etagBump && specReviewLoopActive(spec)) {
+    specDetailRoot.dataset.bodyViewMode = "changes";
+    pulseViewToggle(specDetailRoot);
+  }
+  const linkedPlans = resolveLinkedPlanRefs(spec.slug, spec.body, allCachedPlans());
+  renderSpecDetail(specDetailRoot, spec, {
+    linkedPlans,
+    workspace: cachedWorkspaces.get(spec.slug) ?? null,
+    diff,
+  });
+}
+
+function paintPlanDetailView(plan, specMeta, { diff = null, etagBump = false } = {}) {
+  if (!planDetailRoot) return;
+  if (etagBump && planReviewLoopActive(plan, specMeta)) {
+    planDetailRoot.dataset.bodyViewMode = "changes";
+    pulseViewToggle(planDetailRoot);
+  }
+  renderPlanDetail(planDetailRoot, plan, { spec: specMeta, diff });
+}
+
+function beginSpecDetailPoll(slug) {
+  startDetailPoll({
+    shouldContinue: () => activeSlug === slug && !isCompletedPane(),
+    tick: async (prevEtag) => {
+      const { data, etag } = await apiFetchWithEtag(`specs/${encodeURIComponent(slug)}`);
+      const spec = data.spec;
+      if (!spec) return;
+      const bumped = Boolean(prevEtag && etag && etag !== prevEtag);
+      setDetailPollEtag(etag);
+      upsertCachedSpec(spec);
+      if (bumped) {
+        const diff = await loadSpecDiff(slug, spec);
+        paintSpecDetailView(spec, { diff, etagBump: true });
+        renderCurrentBoard();
+      } else if (prevEtag === null) {
+        paintSpecDetailView(spec, { diff: await loadSpecDiff(slug, spec) });
+      }
+    },
+  });
+}
+
+function beginPlanDetailPoll(id) {
+  startDetailPoll({
+    shouldContinue: () => activePlanId === id && !isCompletedPane(),
+    tick: async (prevEtag) => {
+      const { data, etag } = await apiFetchWithEtag(`plans/${encodeURIComponent(id)}`);
+      const plan = data.plan;
+      if (!plan) return;
+      const bumped = Boolean(prevEtag && etag && etag !== prevEtag);
+      setDetailPollEtag(etag);
+      upsertCachedPlan(plan);
+      const specMeta = specMetaForPlan(plan);
+      if (bumped) {
+        const diff = await loadPlanDiff(id, plan);
+        paintPlanDetailView(plan, specMeta, { diff, etagBump: true });
+        renderCurrentBoard();
+      } else if (prevEtag === null) {
+        paintPlanDetailView(plan, specMeta, { diff: await loadPlanDiff(id, plan) });
+      }
+    },
+  });
+}
+
 function createSpecRow(spec) {
   const linkedPlans = plansForSpec(spec.slug);
   const workspace = workspaceForSlug(spec.slug);
@@ -501,6 +753,9 @@ function createSpecRow(spec) {
         `<span class="status-pill status-pill--orch" data-orch="${escape(label)}">${escape(label)}</span>`,
     )
     .join("");
+  const revGlyph = specListShowsRevisionGlyph(spec)
+    ? `<span class="work-row-revision" title="Body changes during review loop">${escape(revisionListGlyph(spec) ?? "Δ")}</span>`
+    : "";
 
   btn.innerHTML = `
     <span class="work-row-kind">Spec</span>
@@ -514,6 +769,7 @@ function createSpecRow(spec) {
       ${workspaceBadge}
       <span class="status-pill status-pill--intent" data-status="${escape(specBoardStatus(spec))}">${escape(specBoardStatusLabel(spec))}</span>
       ${orchPills}
+      ${revGlyph}
       <span class="work-row-age sr-only">Updated ${formatAge(spec.updated_at)}</span>
     </span>
   `;
@@ -552,6 +808,10 @@ function createImplRow(plan, { nested = false } = {}) {
   const workspaceBadge = workspace
     ? `<span class="workspace-badge" title="${escape(workspace.worktree_path)}">${escape(workspaceTreeSummary(workspace))}</span>`
     : "";
+  const specMeta = specMetaForPlan(plan);
+  const revGlyph = planListShowsRevisionGlyph(plan, specMeta)
+    ? `<span class="work-row-revision" title="Plan body changes during review loop">${escape(revisionListGlyph(plan) ?? "Δ")}</span>`
+    : "";
 
   btn.innerHTML = `
     <span class="work-row-kind">Implementation</span>
@@ -569,6 +829,7 @@ function createImplRow(plan, { nested = false } = {}) {
       ${lockLine}
       ${workspaceBadge}
       <span class="status-pill status-pill--build" data-status="${escape(planBoardStatus(plan))}">${escape(planBoardStatusLabel(plan))}</span>
+      ${revGlyph}
     </span>
   `;
 
@@ -701,6 +962,7 @@ function hideDetailViews() {
 }
 
 function closeDetail({ updateHash = true } = {}) {
+  stopDetailPoll();
   activeSlug = null;
   activePlanId = null;
   setDetailOpen(false);
@@ -737,7 +999,7 @@ async function openSpec(slug, { updateHash = true } = {}) {
   }
 
   try {
-    const data = await apiFetch(`specs/${encodeURIComponent(slug)}`);
+    const { data, etag } = await apiFetchWithEtag(`specs/${encodeURIComponent(slug)}`);
     const spec = data.spec;
     if (!spec) throw new Error("Spec not found");
 
@@ -747,20 +1009,11 @@ async function openSpec(slug, { updateHash = true } = {}) {
     }
     if (specDetailRoot) {
       specDetailRoot.hidden = false;
-      const linkedPlans = resolveLinkedPlanRefs(slug, spec.body, allCachedPlans());
-      let diff = null;
-      if ((spec.revisions_count ?? 0) > 0) {
-        try {
-          diff = await fetchSpecDiff(slug);
-        } catch {
-          /* diff optional when no snapshots yet */
-        }
-      }
-      renderSpecDetail(specDetailRoot, spec, {
-        linkedPlans,
-        workspace: cachedWorkspaces.get(spec.slug) ?? null,
-        diff,
-      });
+      const diff = await loadSpecDiff(slug, spec);
+      setDetailPollEtag(etag);
+      paintSpecDetailView(spec, { diff });
+      if (specReviewLoopActive(spec)) beginSpecDetailPoll(slug);
+      else stopDetailPoll();
     }
     if (isCompletedPane() || spec.status === "done") {
       setBreadcrumb([completedPaneCrumb(), { label: spec.title }]);
@@ -796,7 +1049,7 @@ async function openPlan(id, { updateHash = true } = {}) {
   }
 
   try {
-    const data = await apiFetch(`plans/${encodeURIComponent(id)}`);
+    const { data, etag } = await apiFetchWithEtag(`plans/${encodeURIComponent(id)}`);
     const plan = data.plan;
     if (!plan) throw new Error("Plan not found");
 
@@ -804,21 +1057,14 @@ async function openPlan(id, { updateHash = true } = {}) {
       clearDetailError();
       detailLoading.hidden = true;
     }
-    const specMeta =
-      getCurrentSpecs().find((s) => s.slug === plan.spec_slug) ||
-      cachedCompletedSpecs.find((s) => s.slug === plan.spec_slug) ||
-      null;
+    const specMeta = specMetaForPlan(plan);
     if (planDetailRoot) {
       planDetailRoot.hidden = false;
-      let diff = null;
-      if ((plan.revisions_count ?? 0) > 0) {
-        try {
-          diff = await fetchPlanDiff(id);
-        } catch {
-          /* diff optional */
-        }
-      }
-      renderPlanDetail(planDetailRoot, plan, { spec: specMeta, diff });
+      const diff = await loadPlanDiff(id, plan);
+      setDetailPollEtag(etag);
+      paintPlanDetailView(plan, specMeta, { diff });
+      if (planReviewLoopActive(plan, specMeta)) beginPlanDetailPoll(id);
+      else stopDetailPoll();
     }
 
     const specTitle = specMeta?.title || plan.spec_slug;

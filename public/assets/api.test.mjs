@@ -17,7 +17,10 @@ import {
   specReviewLoopActive,
   planReviewLoopActive,
   revisionSummaryLabel,
+  revisionListGlyph,
   shouldShowDiffToggle,
+  specListShowsRevisionGlyph,
+  planListShowsRevisionGlyph,
   workUnitCount,
 } from "./api.js";
 
@@ -246,5 +249,33 @@ describe("revision loop helpers", () => {
     });
     assert.match(label, /\+3 −1/);
     assert.match(label, /ago|just now/);
+  });
+
+  it("revisionListGlyph shows delta meta", () => {
+    assert.equal(
+      revisionListGlyph({
+        revisions_count: 2,
+        last_revision: { lines_added: 4, lines_removed: 2 },
+      }),
+      "Δ +4 −2",
+    );
+  });
+
+  it("specListShowsRevisionGlyph when review pending with revisions", () => {
+    assert.equal(
+      specListShowsRevisionGlyph({ review_gate: "pending", revisions_count: 1 }),
+      true,
+    );
+    assert.equal(
+      specListShowsRevisionGlyph({ review_gate: "passed", revisions_count: 1 }),
+      false,
+    );
+  });
+
+  it("planListShowsRevisionGlyph when blocked with revisions", () => {
+    assert.equal(
+      planListShowsRevisionGlyph({ status: "blocked", revisions_count: 1 }, null),
+      true,
+    );
   });
 });
