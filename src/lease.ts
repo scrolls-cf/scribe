@@ -66,6 +66,7 @@ export function lockWithLease(
 	holder: LockHolder,
 	acquiredAt: string,
 	leaseSeconds: number,
+	activity?: string,
 ): SpecLock {
 	const acquiredMs = new Date(acquiredAt).getTime();
 	const expiresAt = new Date(acquiredMs + leaseSeconds * 1000).toISOString();
@@ -75,6 +76,7 @@ export function lockWithLease(
 		holder_kind: holder.holder_kind,
 		lease_seconds: leaseSeconds,
 		expires_at: expiresAt,
+		...(activity ? { activity } : {}),
 	};
 }
 

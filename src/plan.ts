@@ -1,5 +1,6 @@
 import type { SpecLock, SpecStatus } from "./spec.ts";
 import { parseLockInput } from "./spec.ts";
+import type { RevisionSummaryFields } from "./revision.ts";
 
 export type PlanTaskStatus = "pending" | "active" | "done";
 export type PlanPhaseStatus = PlanTaskStatus;
@@ -28,7 +29,7 @@ export interface PlanPhase {
 	completed_at?: string | null;
 }
 
-export interface PlanRecord {
+export interface PlanRecord extends RevisionSummaryFields {
 	id: string;
 	spec_slug: string;
 	title: string;
@@ -45,7 +46,7 @@ export interface PlanRecord {
 	updated_at: string;
 }
 
-export interface PlanSummary {
+export interface PlanSummary extends RevisionSummaryFields {
 	id: string;
 	spec_slug: string;
 	title: string;
@@ -165,6 +166,8 @@ export function normalizePlanRecord(
 		etag: raw.etag ?? updated_at,
 		created_at: raw.created_at ?? updated_at,
 		updated_at,
+		revisions_count: raw.revisions_count ?? 0,
+		last_revision: raw.last_revision ?? null,
 	};
 }
 
@@ -230,6 +233,8 @@ export function toPlanSummary(record: PlanRecord): PlanSummary {
 		lock: record.lock,
 		has_user_instructions: Boolean(record.user_instructions?.trim()),
 		etag: record.etag,
+		revisions_count: record.revisions_count,
+		last_revision: record.last_revision,
 	};
 }
 
@@ -414,6 +419,8 @@ export function parseSavePlanInput(
 			etag: now,
 			created_at: existing?.created_at ?? now,
 			updated_at: now,
+			revisions_count: existing?.revisions_count ?? 0,
+			last_revision: existing?.last_revision ?? null,
 		},
 	};
 }

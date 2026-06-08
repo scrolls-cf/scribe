@@ -65,6 +65,45 @@ Locks: **Held by {agent}** or **Open**.
 
 Agent spec bodies are markdown (often pasted from DESIGN.md). The renderer strips YAML frontmatter, demotes `#` headings (title lives in the shell), supports tables, blockquotes, task lists, and fenced code. `TARGET` / `GOAL` / `SUCCESS` / `CONSTRAINTS` / `CONTEXT` lines render as labeled spec rows. Duplicate shell titles are hidden in the detail pane.
 
+## Review loop diff (shape — ged-scribe-review-loop-diff-ui)
+
+### Tokens
+
+| Role | Token | Value |
+|------|-------|-------|
+| Diff add bg | `--color-diff-add` | `oklch(0.32 0.06 155 / 0.45)` |
+| Diff add ink | `--color-diff-add-ink` | `oklch(0.82 0.12 155)` |
+| Diff remove bg | `--color-diff-remove` | `oklch(0.30 0.05 25 / 0.4)` |
+| Diff remove ink | `--color-diff-remove-ink` | `oklch(0.78 0.14 25)` |
+| Diff neutral | `--color-diff-meta` | `oklch(0.58 0.025 255)` |
+
+Add/remove use semantic green/red families at reduced chroma on dark surfaces — not traffic-light neon.
+
+### Components
+
+- **View toggle** — segmented control in spec/plan toolbar: `Prose` | `Changes`. `role="tablist"`; active tab `aria-selected="true"`. Default `Prose`; auto-switch to `Changes` on etag bump when lock `activity: refactor`.
+- **Iteration chip** — `status-pill--orch` variant: `Iteration · N` where N = `revisions_count`. Shown with `Review · Pending` or `Plan review` chips only.
+- **Diff panel** — monospace line numbers (muted), unified line view: `.diff-line--add`, `.diff-line--remove`, `.diff-line--context`. Max height `min(60vh, 32rem)` with vertical scroll inside reader pane.
+- **List Δ glyph** — `work-row-meta` suffix: `Δ +12 −4` at `0.75rem` mono when loop active and `last_revision` present.
+- **History disclosure** — `<details class="revision-history">` below prose when gate passed and N > 0; summary "Revision history (N)".
+
+### Layout
+
+- Toolbar: existing pills → iteration chip → view toggle → plan links → updated meta
+- Body: single column; diff panel replaces `.prose` when Changes selected (not side-by-side — narrow detail pane)
+- Mobile: toggle full-width below chips; diff panel uses `font-size: 0.875rem`
+
+### Motion
+
+- Toggle cross-fade 120ms ease (opacity only)
+- No line-by-line stagger
+- `@media (prefers-reduced-motion: reduce)`: instant swap, no fade
+
+### Empty states
+
+- No revisions: hide toggle and iteration chip
+- Single revision (register only): toggle hidden until second body write
+
 ## Terminology
 
-**Spec**, **implementation**, **lock**, **active work**. CSS prefixes: `scribe-`, `work-`, `spec-`. No **fleet**.
+**Spec**, **implementation**, **lock**, **active work**, **revision**, **iteration**. CSS prefixes: `scribe-`, `work-`, `spec-`, `diff-`, `revision-`. No **fleet**.

@@ -39,7 +39,7 @@ import {
 	type PlanPhase,
 	type PlanRecord,
 } from "./plan.ts";
-import { parseOptionalLockBody } from "./spec.ts";
+import { parseOptionalLockBody, resolveLockActivity } from "./spec.ts";
 import {
 	parseTakeInput,
 	rankQueueCandidates,
@@ -66,6 +66,7 @@ import {
 	toSpecSummary,
 	type SpecRecord,
 } from "./spec.ts";
+import { applyBodyRevisionOnSave } from "./revision.ts";
 
 export class Scribe extends DurableObject {
 	async alarm(): Promise<void> {
@@ -243,7 +244,13 @@ export class Scribe extends DurableObject {
 			return Response.json({ ok: false, error: parsed.error }, { status: 400 });
 		}
 
-		const record = parsed.value;
+		const record = await applyBodyRevisionOnSave(
+			this.ctx.storage,
+			"spec",
+			parsed.value.slug,
+			existing,
+			parsed.value,
+		);
 		const slugs = new Set((await this.ctx.storage.get<string[]>(SPEC_INDEX_KEY)) ?? []);
 		slugs.add(record.slug);
 		const created = !existing;
@@ -347,9 +354,10 @@ export class Scribe extends DurableObject {
 		}
 
 		const now = new Date().toISOString();
+		const activity = resolveLockActivity(raw, record.lock);
 		const updated: SpecRecord = {
 			...record,
-			lock: lockWithLease(holder, now, leaseParsed.value),
+			lock: lockWithLease(holder, now, leaseParsed.value, activity),
 			updated_at: now,
 			etag: now,
 		};
@@ -478,7 +486,13 @@ export class Scribe extends DurableObject {
 			return Response.json({ ok: false, error: parsed.error }, { status: 400 });
 		}
 
-		const record = parsed.value;
+		const record = await applyBodyRevisionOnSave(
+			this.ctx.storage,
+			"plan",
+			parsed.value.id,
+			existing,
+			parsed.value,
+		);
 		const ids = new Set((await this.ctx.storage.get<string[]>(PLAN_INDEX_KEY)) ?? []);
 		ids.add(record.id);
 		const created = !existing;
@@ -591,7 +605,8 @@ export class Scribe extends DurableObject {
 		}
 
 		const now = new Date().toISOString();
-		const lock = lockWithLease(holder, now, leaseParsed.value);
+		const activity = resolveLockActivity(raw, record.lock);
+		const lock = lockWithLease(holder, now, leaseParsed.value, activity);
 		const updated: PlanRecord = {
 			...record,
 			lock,
@@ -799,14 +814,16 @@ export class Scribe extends DurableObject {
 		holder: LockHolder,
 		record: SpecRecord,
 		leaseSeconds: number,
+		activity?: string,
 	): { ok: true; spec: SpecRecord } | { ok: false; error: string; status: number } {
 		if (record.lock && record.lock.agent_id !== holder.holder_id) {
 			return { ok: false, error: "lock held", status: 409 };
 		}
 		const now = new Date().toISOString();
+		const lockActivity = activity ?? record.lock?.activity;
 		const updated: SpecRecord = {
 			...record,
-			lock: lockWithLease(holder, now, leaseSeconds),
+			lock: lockWithLease(holder, now, leaseSeconds, lockActivity),
 			updated_at: now,
 			etag: now,
 		};
@@ -818,6 +835,7 @@ export class Scribe extends DurableObject {
 		record: PlanRecord,
 		phaseId: string,
 		leaseSeconds: number,
+		activity?: string,
 	): { ok: true; plan: PlanRecord } | { ok: false; error: string; status: number } {
 		const pickable = nextPickablePhase(record);
 		if (!pickable || pickable.id !== phaseId) {
@@ -829,7 +847,8 @@ export class Scribe extends DurableObject {
 			return { ok: false, error: "lock held", status: 409 };
 		}
 		const now = new Date().toISOString();
-		const phaseLock = lockWithLease(holder, now, leaseSeconds);
+		const lockActivity = activity ?? phase.lock?.activity;
+		const phaseLock = lockWithLease(holder, now, leaseSeconds, lockActivity);
 		const phases = record.phases.map((p) =>
 			p.id === phaseId
 				? {
@@ -877,7 +896,17 @@ export class Scribe extends DurableObject {
 			return Response.json({ ok: false, error: leaseParsed.error }, { status: 400 });
 		}
 
-		const lockRes = this.acquirePlanPhaseLockInternal(holder, record, phaseId, leaseParsed.value);
+		const activity = resolveLockActivity(
+			raw,
+			record.phases.find((p) => p.id === phaseId)?.lock ?? null,
+		);
+		const lockRes = this.acquirePlanPhaseLockInternal(
+			holder,
+			record,
+			phaseId,
+			leaseParsed.value,
+			activity,
+		);
 		if (!lockRes.ok) {
 			return Response.json({ ok: false, error: lockRes.error }, { status: lockRes.status });
 		}

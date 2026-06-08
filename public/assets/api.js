@@ -135,10 +135,24 @@ export function specOrchestrationLabel(spec) {
   return specOrchestrationLabels(spec).join(" · ");
 }
 
+/** @param {string} [activity] */
+export function lockActivityLabel(activity) {
+  /** @type {Record<string, string>} */
+  const labels = {
+    review: "Review",
+    implement: "Implement",
+    refactor: "Refactor",
+  };
+  const key = String(activity ?? "").trim().toLowerCase();
+  return labels[key] ?? "";
+}
+
 export function lockSummary(lock) {
   if (!lock) return "Open";
   const who = lock.holder_kind === "user" ? lock.agent_id : lock.agent_id;
-  const base = lock.holder_kind === "user" ? `Held by ${who}` : `Held by agent ${who}`;
+  const held = lock.holder_kind === "user" ? `Held by ${who}` : `Held by agent ${who}`;
+  const activity = lockActivityLabel(lock.activity);
+  const base = activity ? `${activity} · ${held}` : held;
   if (!lock.expires_at) return base;
   const ms = new Date(lock.expires_at).getTime() - Date.now();
   if (ms <= 0) return `${base} · expired`;
@@ -153,9 +167,11 @@ export function lockSummary(lock) {
 /** Short lock label for tree rows (full text lives in detail toolbar + aria-label). */
 export function lockTreeSummary(lock) {
   if (!lock?.agent_id) return "Held";
+  const activity = lockActivityLabel(lock.activity);
   const id = String(lock.agent_id);
   const short = id.length > 14 ? `${id.slice(0, 10)}…` : id;
-  return `Held · ${short}`;
+  const held = `Held · ${short}`;
+  return activity ? `${activity} · ${held}` : held;
 }
 
 export function workspaceShortPath(path) {

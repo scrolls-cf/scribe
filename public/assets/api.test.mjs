@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  lockActivityLabel,
+  lockSummary,
+  lockTreeSummary,
   mergePlansForActiveSpecs,
   partitionCompletedWork,
   planBoardStatus,
@@ -159,6 +162,36 @@ describe("specBoardStatus", () => {
 
   it("ready when review_gate passed", () => {
     assert.equal(specBoardStatus({ status: "ready", review_gate: "passed" }), "ready");
+  });
+});
+
+describe("lockActivityLabel", () => {
+  it("maps known activities", () => {
+    assert.equal(lockActivityLabel("review"), "Review");
+    assert.equal(lockActivityLabel("implement"), "Implement");
+  });
+
+  it("returns empty for unknown activity", () => {
+    assert.equal(lockActivityLabel("ship"), "");
+  });
+});
+
+describe("lockSummary", () => {
+  it("prefixes review activity before holder", () => {
+    const text = lockSummary({
+      agent_id: "ged-session-1",
+      holder_kind: "agent",
+      acquired_at: "2026-06-08T00:00:00.000Z",
+      activity: "review",
+    });
+    assert.match(text, /^Review · Held by agent ged-session-1/);
+  });
+
+  it("lockTreeSummary includes activity prefix", () => {
+    assert.equal(
+      lockTreeSummary({ agent_id: "ged-session-1", activity: "implement" }),
+      "Implement · Held · ged-session-1",
+    );
   });
 });
 

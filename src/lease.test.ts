@@ -84,6 +84,16 @@ describe("lease helpers", () => {
 		assert.equal(lock.expires_at, "2026-01-01T00:05:00.000Z");
 	});
 
+	it("stores optional activity on lock", () => {
+		const lock = lockWithLease(
+			{ holder_id: "agent-1", holder_kind: "agent" },
+			"2026-01-01T00:00:00.000Z",
+			300,
+			"review",
+		);
+		assert.equal(lock.activity, "review");
+	});
+
 	it("finds due leases", () => {
 		const entries: LeaseEntry[] = [
 			{

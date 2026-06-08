@@ -1,4 +1,5 @@
 import { parseSpecFooterFields } from "./spec-footer.ts";
+import type { RevisionSummaryFields } from "./revision.ts";
 
 export type SpecStatus = "ready" | "in_progress" | "blocked" | "done";
 export type PhaseStatus = "pending" | "active" | "done";
@@ -20,6 +21,8 @@ export interface SpecLock {
 	expires_at?: string;
 	/** TTL seconds used for this lock. */
 	lease_seconds?: number;
+	/** Orchestrator activity label (review, implement, refactor). */
+	activity?: string;
 }
 
 export interface SpecOrchestrationFields {
@@ -31,7 +34,7 @@ export interface SpecOrchestrationFields {
 	worker_scope?: string[];
 }
 
-export interface SpecRecord extends SpecOrchestrationFields {
+export interface SpecRecord extends SpecOrchestrationFields, RevisionSummaryFields {
 	slug: string;
 	title: string;
 	body: string;
@@ -46,7 +49,7 @@ export interface SpecRecord extends SpecOrchestrationFields {
 	updated_at: string;
 }
 
-export interface SpecSummary extends SpecOrchestrationFields {
+export interface SpecSummary extends SpecOrchestrationFields, RevisionSummaryFields {
 	slug: string;
 	title: string;
 	source?: string;
@@ -95,6 +98,8 @@ export function normalizeSpecRecord(raw: SpecRecord | (Omit<SpecRecord, "status"
 		etag: raw.etag ?? updated_at,
 		created_at: raw.created_at ?? updated_at,
 		updated_at,
+		revisions_count: raw.revisions_count ?? 0,
+		last_revision: raw.last_revision ?? null,
 	};
 }
 
@@ -155,6 +160,8 @@ export function toSpecSummary(record: SpecRecord): SpecSummary {
 		active_phase: normalized.active_phase,
 		lock: normalized.lock,
 		etag: normalized.etag,
+		revisions_count: normalized.revisions_count,
+		last_revision: normalized.last_revision,
 		...orchestrationFromRecord(normalized),
 	};
 }
@@ -251,6 +258,8 @@ export function parseSaveSpecInput(
 			review_gate: footer.review_gate,
 			plan_review: footer.plan_review,
 			worker_scope: footer.worker_scope,
+			revisions_count: existing?.revisions_count ?? 0,
+			last_revision: existing?.last_revision ?? null,
 		},
 	};
 }
@@ -327,4 +336,22 @@ export function parseOptionalLockBody(raw: unknown): string | undefined {
 		? (raw as { agent_id: string }).agent_id.trim()
 		: "";
 	return agent_id || undefined;
+}
+
+/** Optional lock activity from acquire/renew body (lowercase, max 32 chars). */
+export function parseOptionalLockActivity(raw: unknown): string | undefined {
+	if (!raw || typeof raw !== "object") return undefined;
+	const activity = typeof (raw as { activity?: unknown }).activity === "string"
+		? (raw as { activity: string }).activity.trim().toLowerCase()
+		: "";
+	if (!activity || activity.length > 32) return undefined;
+	return activity;
+}
+
+/** Prefer body activity; keep existing on same-holder renew when omitted. */
+export function resolveLockActivity(
+	raw: unknown,
+	existing: SpecLock | null | undefined,
+): string | undefined {
+	return parseOptionalLockActivity(raw) ?? existing?.activity;
 }
