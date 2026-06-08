@@ -522,3 +522,72 @@ export async function fetchPlanDiff(id, params = {}) {
   return apiFetch(`plans/${encodeURIComponent(id)}/diff${q ? `?${q}` : ""}`);
 }
 
+/** Human label for SQLite audit revision events. */
+export function auditEventLabel(event) {
+  const labels = {
+    spec_review_revise: "Spec review · revise",
+    spec_review_resubmit: "Spec review · resubmit",
+    spec_review_pass: "Spec review · passed",
+    spec_body_amend: "Spec body amend",
+    plan_review_revise: "Plan review · revise",
+    plan_review_pass: "Plan review · passed",
+    plan_amend: "Plan amend",
+    post_ship_amend: "Post-ship amend",
+  };
+  return labels[event] ?? String(event ?? "").replace(/_/g, " ");
+}
+
+/** @param {{ holder_id?: string, holder_kind?: string } | null | undefined} reviewer */
+export function formatReviewer(reviewer) {
+  if (!reviewer?.holder_id) return "";
+  const kind = reviewer.holder_kind === "user" ? "User" : "Agent";
+  return `${kind}: ${reviewer.holder_id}`;
+}
+
+/** @param {{ revisions_summary?: { count?: number } } | null | undefined} record */
+export function auditRevisionCount(record) {
+  const n = record?.revisions_summary?.count;
+  return typeof n === "number" && n > 0 ? n : 0;
+}
+
+/** Short list-row label for SQLite audit trail (distinct from KV body-diff Δ). */
+export function auditRevisionListMeta(record) {
+  const count = auditRevisionCount(record);
+  if (count <= 0) return null;
+  return count === 1 ? "1 audit rev" : `${count} audit revs`;
+}
+
+/** @param {string} slug @param {{ limit?: number, offset?: number }} [params] */
+export async function fetchSpecRevisions(slug, params = {}) {
+  const qs = new URLSearchParams();
+  if (params.limit != null) qs.set("limit", String(params.limit));
+  if (params.offset != null) qs.set("offset", String(params.offset));
+  const q = qs.toString();
+  return apiFetch(`specs/${encodeURIComponent(slug)}/revisions${q ? `?${q}` : ""}`);
+}
+
+/** @param {string} slug @param {string} revisionId */
+export async function fetchSpecRevision(slug, revisionId) {
+  const data = await apiFetch(
+    `specs/${encodeURIComponent(slug)}/revisions/${encodeURIComponent(revisionId)}`,
+  );
+  return data.revision;
+}
+
+/** @param {string} id @param {{ limit?: number, offset?: number }} [params] */
+export async function fetchPlanRevisions(id, params = {}) {
+  const qs = new URLSearchParams();
+  if (params.limit != null) qs.set("limit", String(params.limit));
+  if (params.offset != null) qs.set("offset", String(params.offset));
+  const q = qs.toString();
+  return apiFetch(`plans/${encodeURIComponent(id)}/revisions${q ? `?${q}` : ""}`);
+}
+
+/** @param {string} id @param {string} revisionId */
+export async function fetchPlanRevision(id, revisionId) {
+  const data = await apiFetch(
+    `plans/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}`,
+  );
+  return data.revision;
+}
+

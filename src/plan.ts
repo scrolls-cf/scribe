@@ -1,6 +1,7 @@
 import type { SpecLock, SpecStatus } from "./spec.ts";
 import { parseLockInput } from "./spec.ts";
 import type { RevisionSummaryFields } from "./revision.ts";
+import type { RevisionsSummary } from "./revision-record.ts";
 
 export type PlanTaskStatus = "pending" | "active" | "done";
 export type PlanPhaseStatus = PlanTaskStatus;
@@ -30,6 +31,8 @@ export interface PlanPhase {
 }
 
 export interface PlanRecord extends RevisionSummaryFields {
+	/** SQLite audit trail preview — populated on GET only. */
+	revisions_summary?: RevisionsSummary;
 	id: string;
 	spec_slug: string;
 	title: string;
@@ -47,6 +50,7 @@ export interface PlanRecord extends RevisionSummaryFields {
 }
 
 export interface PlanSummary extends RevisionSummaryFields {
+	revisions_summary?: RevisionsSummary;
 	id: string;
 	spec_slug: string;
 	title: string;
@@ -427,7 +431,19 @@ export function parseSavePlanInput(
 
 export function parsePatchPlanInput(
 	raw: unknown,
-): { ok: true; value: { status?: SpecStatus; tasks?: PlanTask[]; phases?: PlanPhase[]; user_instructions?: string; deploy?: PlanDeploy | null; etag?: string } } | { ok: false; error: string } {
+): {
+	ok: true;
+	value: {
+		status?: SpecStatus;
+		tasks?: PlanTask[];
+		phases?: PlanPhase[];
+		user_instructions?: string;
+		deploy?: PlanDeploy | null;
+		etag?: string;
+		revision_reason?: string;
+		revision_event?: string;
+	};
+} | { ok: false; error: string } {
 	if (!raw || typeof raw !== "object") {
 		return { ok: false, error: "body must be a JSON object" };
 	}
@@ -439,6 +455,8 @@ export function parsePatchPlanInput(
 		user_instructions?: string;
 		deploy?: PlanDeploy | null;
 		etag?: string;
+		revision_reason?: string;
+		revision_event?: string;
 	} = {};
 
 	if (m.status !== undefined) {
@@ -479,12 +497,28 @@ export function parsePatchPlanInput(
 		out.etag = m.etag.trim();
 	}
 
+	if (m.revision_reason !== undefined) {
+		if (typeof m.revision_reason !== "string") {
+			return { ok: false, error: "invalid revision_reason" };
+		}
+		out.revision_reason = m.revision_reason;
+	}
+
+	if (m.revision_event !== undefined) {
+		if (typeof m.revision_event !== "string" || !m.revision_event.trim()) {
+			return { ok: false, error: "invalid revision_event" };
+		}
+		out.revision_event = m.revision_event.trim();
+	}
+
 	if (
 		out.status === undefined &&
 		out.tasks === undefined &&
 		out.phases === undefined &&
 		out.user_instructions === undefined &&
-		out.deploy === undefined
+		out.deploy === undefined &&
+		out.revision_reason === undefined &&
+		out.revision_event === undefined
 	) {
 		return { ok: false, error: "status, tasks, phases, user_instructions, or deploy required" };
 	}

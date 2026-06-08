@@ -1,4 +1,6 @@
 import {
+  fetchSpecRevision,
+  fetchSpecRevisions,
   formatAge,
   hideSpecExecutionSections,
   lockSummary,
@@ -19,6 +21,7 @@ import {
   syncBodyViewToggle,
 } from "./detail-diff.js";
 import { renderMarkdown } from "./markdown.js";
+import { mountRevisionTimeline } from "./revision-timeline.js";
 
 /** @typedef {"prose" | "changes"} BodyViewMode */
 
@@ -308,6 +311,13 @@ export function renderSpecDetail(root, spec, opts = {}) {
 
   applyBody();
   renderSpecReviewNotice(root, spec);
+
+  const timeline = root.querySelector("#spec-revision-timeline");
+  mountRevisionTimeline(timeline, {
+    summary: spec.revisions_summary ?? null,
+    fetchList: (opts) => fetchSpecRevisions(spec.slug, opts),
+    fetchDetail: (id) => fetchSpecRevision(spec.slug, id),
+  });
 
   const doneNotice = root.querySelector("#spec-done-notice");
   if (doneNotice) {

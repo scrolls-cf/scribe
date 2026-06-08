@@ -77,10 +77,23 @@ import {
 import {
 	applyBodyRevisionOnSave,
 	buildRevisionDiff,
-	getRevision,
-	listRevisions,
-	parseRevisionLimit,
 } from "./revision.ts";
+import {
+	appendRevisionRecordIfNeeded,
+	getRevisionRecord,
+	listRevisionRecords,
+	loadRevisionsSummary,
+	parseRevisionAppendInput,
+	parseRevisionListLimit,
+	parseRevisionOffset,
+	parseRevisionPreview,
+	reviewerFromHolder,
+	toRevisionSummaryEntry,
+	type RevisionHandler,
+	type RevisionSql,
+	type RevisionTargetKind,
+	type RevisionsSummary,
+} from "./revision-record.ts";
 import {
 	applyImplementStart,
 	applyPhaseDone,
@@ -95,6 +108,38 @@ import {
 } from "./orchestrate.ts";
 
 export class Scribe extends DurableObject {
+	private revisionSql(): RevisionSql {
+		return this.ctx.storage.sql as unknown as RevisionSql;
+	}
+
+	private async auditRevisionOnSave(
+		request: Request,
+		raw: unknown,
+		targetKind: RevisionTargetKind,
+		before: SpecRecord | PlanRecord | null,
+		after: SpecRecord | PlanRecord,
+		handler: RevisionHandler,
+	): Promise<Response | null> {
+		if (!before) return null;
+		const holder = resolveLockHolder(request, parseOptionalLockBody(raw));
+		const input = parseRevisionAppendInput(
+			raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {},
+		);
+		const result = await appendRevisionRecordIfNeeded(
+			this.revisionSql(),
+			targetKind,
+			before,
+			after,
+			holder ? reviewerFromHolder(holder) : null,
+			input,
+			handler,
+		);
+		if (!result.ok) {
+			return Response.json({ ok: false, error: result.error }, { status: result.status });
+		}
+		return null;
+	}
+
 	async alarm(): Promise<void> {
 		try {
 			await this.processDueLeases();
@@ -186,7 +231,7 @@ export class Scribe extends DurableObject {
 		const planPatchMatch = url.pathname.match(/^\/plans\/([^/]+)$/);
 		if (planPatchMatch) {
 			const id = decodeURIComponent(planPatchMatch[1]);
-			if (request.method === "GET") return this.getPlan(id);
+			if (request.method === "GET") return this.getPlan(id, url);
 			if (request.method === "PATCH") return this.patchPlan(id, request);
 			if (request.method === "DELETE") return this.deletePlan(id);
 		}
@@ -253,12 +298,25 @@ export class Scribe extends DurableObject {
 		});
 	}
 
+	private revisionsSummaryFor(
+		targetKind: RevisionTargetKind,
+		targetId: string,
+		preview: number,
+	): RevisionsSummary {
+		return loadRevisionsSummary(this.revisionSql(), targetKind, targetId, preview);
+	}
+
 	private async getSpec(slug: string, url: URL): Promise<Response> {
 		const stored = await this.ctx.storage.get<SpecRecord>(specKey(slug));
 		if (!stored) {
 			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
 		}
 		const metadata = normalizeSpecRecord(stored);
+		const revisions_summary = this.revisionsSummaryFor(
+			"spec",
+			slug,
+			parseRevisionPreview(url.searchParams.get("revision_preview")),
+		);
 		const view = url.searchParams.get("view") ?? "full";
 		if (view === "summary") {
 			const footerBody = needsFooterBodyParse(metadata)
@@ -266,12 +324,15 @@ export class Scribe extends DurableObject {
 				: "";
 			const orient = toSpecOrientView(metadata, parseSpecFooterFields(footerBody));
 			return Response.json(
-				{ ok: true, spec: orient },
+				{ ok: true, spec: { ...orient, revisions_summary } },
 				{ headers: etagResponseHeaders(metadata.etag) },
 			);
 		}
 		const spec = await this.loadSpecRecord(slug, stored);
-		return Response.json({ ok: true, spec }, { headers: etagResponseHeaders(spec.etag) });
+		return Response.json(
+			{ ok: true, spec: { ...spec, revisions_summary } },
+			{ headers: etagResponseHeaders(spec.etag) },
+		);
 	}
 
 	private async getSpecBody(slug: string): Promise<Response> {
@@ -292,19 +353,25 @@ export class Scribe extends DurableObject {
 		if (!stored) {
 			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
 		}
-		const spec = normalizeSpecRecord(stored);
-		const limit = parseRevisionLimit(url.searchParams.get("limit"));
-		const result = await listRevisions(this.ctx.storage, "spec", slug, limit);
-		return Response.json({ ok: true, revisions: result.revisions, count: result.count });
+		const limit = parseRevisionListLimit(url.searchParams.get("limit"));
+		const offset = parseRevisionOffset(url.searchParams.get("offset"));
+		const result = listRevisionRecords(this.revisionSql(), "spec", slug, limit, offset);
+		return Response.json({
+			ok: true,
+			revisions: result.revisions.map(toRevisionSummaryEntry),
+			count: result.total,
+			limit,
+			offset,
+		});
 	}
 
-	private async getSpecRevision(slug: string, baseEtag: string): Promise<Response> {
+	private async getSpecRevision(slug: string, revisionId: string): Promise<Response> {
 		const stored = await this.ctx.storage.get<SpecRecord>(specKey(slug));
 		if (!stored) {
 			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
 		}
-		const revision = await getRevision(this.ctx.storage, "spec", slug, baseEtag);
-		if (!revision) {
+		const revision = getRevisionRecord(this.revisionSql(), revisionId);
+		if (!revision || revision.target_kind !== "spec" || revision.target_id !== slug) {
 			return Response.json({ ok: false, error: "revision not found" }, { status: 404 });
 		}
 		return Response.json({ ok: true, revision });
@@ -365,6 +432,15 @@ export class Scribe extends DurableObject {
 			existing,
 			parsed.value,
 		);
+		const auditErr = await this.auditRevisionOnSave(
+			request,
+			raw,
+			"spec",
+			existing,
+			record,
+			"save",
+		);
+		if (auditErr) return auditErr;
 		const slugs = new Set((await this.ctx.storage.get<string[]>(SPEC_INDEX_KEY)) ?? []);
 		slugs.add(record.slug);
 		const created = !existing;
@@ -416,8 +492,10 @@ export class Scribe extends DurableObject {
 
 		const now = new Date().toISOString();
 		const nextStatus = parsed.value.status ?? record.status;
+		const nextBody = parsed.value.body !== undefined ? parsed.value.body : record.body;
 		const updated: SpecRecord = {
 			...record,
+			body: nextBody,
 			status: nextStatus,
 			phases: parsed.value.phases ?? record.phases,
 			active_phase:
@@ -441,12 +519,31 @@ export class Scribe extends DurableObject {
 			updated_at: now,
 			etag: now,
 		};
-		await putSpecRecord(this.ctx.storage, updated);
+		const withRevisions = await applyBodyRevisionOnSave(
+			this.ctx.storage,
+			"spec",
+			slug,
+			record,
+			updated,
+		);
+		const auditErr = await this.auditRevisionOnSave(
+			request,
+			raw,
+			"spec",
+			record,
+			withRevisions,
+			"patch",
+		);
+		if (auditErr) return auditErr;
+		await putSpecRecord(this.ctx.storage, withRevisions);
 		if (nextStatus === "done" && record.lock) {
 			await removeLease(this.ctx.storage, { kind: "spec", slug });
 			await removeWorkspaceLease(this.ctx.storage, slug);
 		}
-		return Response.json({ ok: true, spec: updated }, { headers: etagResponseHeaders(updated.etag) });
+		return Response.json(
+			{ ok: true, spec: withRevisions },
+			{ headers: etagResponseHeaders(withRevisions.etag) },
+		);
 	}
 
 	private async orchestrateTransition(slug: string, request: Request): Promise<Response> {
@@ -793,13 +890,18 @@ export class Scribe extends DurableObject {
 		});
 	}
 
-	private async getPlan(id: string): Promise<Response> {
+	private async getPlan(id: string, url?: URL): Promise<Response> {
 		const stored = await this.ctx.storage.get<PlanRecord>(planKey(id));
 		if (!stored) {
 			return Response.json({ ok: false, error: "plan not found" }, { status: 404 });
 		}
 		const plan = normalizePlanRecord(stored);
 		const summary = toPlanSummary(plan);
+		const revisions_summary = this.revisionsSummaryFor(
+			"plan",
+			id,
+			parseRevisionPreview(url?.searchParams.get("revision_preview") ?? null),
+		);
 		return Response.json(
 			{
 				ok: true,
@@ -811,6 +913,7 @@ export class Scribe extends DurableObject {
 					tasks_total: summary.tasks_total,
 					completion_ratio: summary.completion_ratio,
 					active_phase: summary.active_phase,
+					revisions_summary,
 				},
 			},
 			{ headers: etagResponseHeaders(plan.etag) },
@@ -822,18 +925,25 @@ export class Scribe extends DurableObject {
 		if (!stored) {
 			return Response.json({ ok: false, error: "plan not found" }, { status: 404 });
 		}
-		const limit = parseRevisionLimit(url.searchParams.get("limit"));
-		const result = await listRevisions(this.ctx.storage, "plan", id, limit);
-		return Response.json({ ok: true, revisions: result.revisions, count: result.count });
+		const limit = parseRevisionListLimit(url.searchParams.get("limit"));
+		const offset = parseRevisionOffset(url.searchParams.get("offset"));
+		const result = listRevisionRecords(this.revisionSql(), "plan", id, limit, offset);
+		return Response.json({
+			ok: true,
+			revisions: result.revisions.map(toRevisionSummaryEntry),
+			count: result.total,
+			limit,
+			offset,
+		});
 	}
 
-	private async getPlanRevision(id: string, baseEtag: string): Promise<Response> {
+	private async getPlanRevision(id: string, revisionId: string): Promise<Response> {
 		const stored = await this.ctx.storage.get<PlanRecord>(planKey(id));
 		if (!stored) {
 			return Response.json({ ok: false, error: "plan not found" }, { status: 404 });
 		}
-		const revision = await getRevision(this.ctx.storage, "plan", id, baseEtag);
-		if (!revision) {
+		const revision = getRevisionRecord(this.revisionSql(), revisionId);
+		if (!revision || revision.target_kind !== "plan" || revision.target_id !== id) {
 			return Response.json({ ok: false, error: "revision not found" }, { status: 404 });
 		}
 		return Response.json({ ok: true, revision });
@@ -884,6 +994,15 @@ export class Scribe extends DurableObject {
 			existing,
 			parsed.value,
 		);
+		const auditErr = await this.auditRevisionOnSave(
+			request,
+			raw,
+			"plan",
+			existing,
+			record,
+			"save",
+		);
+		if (auditErr) return auditErr;
 		const ids = new Set((await this.ctx.storage.get<string[]>(PLAN_INDEX_KEY)) ?? []);
 		ids.add(record.id);
 		const created = !existing;
@@ -962,7 +1081,23 @@ export class Scribe extends DurableObject {
 			etag: now,
 		};
 		const next_actions = planNextActionsAfterPatch(record, updated);
-		await this.ctx.storage.put(planKey(id), updated);
+		const withRevisions = await applyBodyRevisionOnSave(
+			this.ctx.storage,
+			"plan",
+			id,
+			record,
+			updated,
+		);
+		const auditErr = await this.auditRevisionOnSave(
+			request,
+			raw,
+			"plan",
+			record,
+			withRevisions,
+			"patch",
+		);
+		if (auditErr) return auditErr;
+		await this.ctx.storage.put(planKey(id), withRevisions);
 		if (nextStatus === "done" && record.lock) {
 			await removeLease(this.ctx.storage, { kind: "plan", id });
 			if (record.spec_slug) {
@@ -970,8 +1105,8 @@ export class Scribe extends DurableObject {
 			}
 		}
 		return Response.json(
-			{ ok: true, plan: updated, next_actions },
-			{ headers: etagResponseHeaders(updated.etag) },
+			{ ok: true, plan: withRevisions, next_actions },
+			{ headers: etagResponseHeaders(withRevisions.etag) },
 		);
 	}
 

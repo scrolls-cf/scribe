@@ -1,5 +1,6 @@
 import { parseSpecFooterFields } from "./spec-footer.ts";
 import type { RevisionSummaryFields } from "./revision.ts";
+import type { RevisionsSummary } from "./revision-record.ts";
 
 export type SpecStatus = "ready" | "in_progress" | "blocked" | "done";
 export type PhaseStatus = "pending" | "active" | "done";
@@ -35,6 +36,8 @@ export interface SpecOrchestrationFields {
 }
 
 export interface SpecRecord extends SpecOrchestrationFields, RevisionSummaryFields {
+	/** SQLite audit trail preview — populated on GET only. */
+	revisions_summary?: RevisionsSummary;
 	slug: string;
 	title: string;
 	body: string;
@@ -50,6 +53,7 @@ export interface SpecRecord extends SpecOrchestrationFields, RevisionSummaryFiel
 }
 
 export interface SpecSummary extends SpecOrchestrationFields, RevisionSummaryFields {
+	revisions_summary?: RevisionsSummary;
 	slug: string;
 	title: string;
 	source?: string;
@@ -369,6 +373,7 @@ export function parseSaveSpecInput(
 
 export interface SpecPatchInput {
 	status?: SpecStatus;
+	body?: string;
 	phases?: SpecPhase[];
 	active_phase?: string | null;
 	etag?: string;
@@ -378,6 +383,8 @@ export interface SpecPatchInput {
 	review_gate?: string | null;
 	plan_review?: string | null;
 	worker_scope?: string[];
+	revision_reason?: string;
+	revision_event?: string;
 }
 
 function parsePatchOrchestrationString(
@@ -448,8 +455,28 @@ export function parsePatchSpecInput(
 		out.etag = m.etag.trim();
 	}
 
+	if (m.body !== undefined) {
+		if (typeof m.body !== "string") return { ok: false, error: "invalid body" };
+		out.body = m.body;
+	}
+
+	if (m.revision_reason !== undefined) {
+		if (typeof m.revision_reason !== "string") {
+			return { ok: false, error: "invalid revision_reason" };
+		}
+		out.revision_reason = m.revision_reason;
+	}
+
+	if (m.revision_event !== undefined) {
+		if (typeof m.revision_event !== "string" || !m.revision_event.trim()) {
+			return { ok: false, error: "invalid revision_event" };
+		}
+		out.revision_event = m.revision_event.trim();
+	}
+
 	if (
 		out.status === undefined &&
+		out.body === undefined &&
 		out.phases === undefined &&
 		out.active_phase === undefined &&
 		out.terminal_skill === undefined &&
@@ -457,7 +484,9 @@ export function parsePatchSpecInput(
 		out.plan_id === undefined &&
 		out.review_gate === undefined &&
 		out.plan_review === undefined &&
-		out.worker_scope === undefined
+		out.worker_scope === undefined &&
+		out.revision_reason === undefined &&
+		out.revision_event === undefined
 	) {
 		return { ok: false, error: "at least one patch field required" };
 	}

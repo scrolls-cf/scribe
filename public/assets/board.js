@@ -19,6 +19,7 @@ import {
   planProgressLabel,
   planProgressTracked,
   planReviewLoopActive,
+  auditRevisionListMeta,
   revisionListMeta,
   specLinkLabel,
   specSlugFromPath,
@@ -603,9 +604,15 @@ function createSpecRow(spec) {
     .join("");
   const revMeta =
     !isCompletedPane() ? revisionListMeta(spec, specReviewLoopActive(spec)) : null;
-  const revMetaHtml = revMeta
-    ? `<span class="work-row-revision-meta" title="Body changes during review loop">${escape(revMeta)}</span>`
-    : "";
+  const auditMeta = !isCompletedPane() ? auditRevisionListMeta(spec) : null;
+  const revMetaHtml = [
+    revMeta
+      ? `<span class="work-row-revision-meta" title="Body changes during review loop">${escape(revMeta)}</span>`
+      : "",
+    auditMeta
+      ? `<span class="work-row-revision-meta work-row-revision-meta--audit" title="SQLite revision audit trail">${escape(auditMeta)}</span>`
+      : "",
+  ].join("");
 
   btn.innerHTML = `
     <span class="work-row-kind">Spec</span>
@@ -666,9 +673,15 @@ function createImplRow(plan, { nested = false } = {}) {
     !isCompletedPane()
       ? revisionListMeta(plan, planReviewLoopActive(plan, specMeta))
       : null;
-  const revMetaHtml = revMeta
-    ? `<span class="work-row-revision-meta" title="Plan body changes during review loop">${escape(revMeta)}</span>`
-    : "";
+  const auditMeta = !isCompletedPane() ? auditRevisionListMeta(plan) : null;
+  const revMetaHtml = [
+    revMeta
+      ? `<span class="work-row-revision-meta" title="Plan body changes during review loop">${escape(revMeta)}</span>`
+      : "",
+    auditMeta
+      ? `<span class="work-row-revision-meta work-row-revision-meta--audit" title="SQLite revision audit trail">${escape(auditMeta)}</span>`
+      : "",
+  ].join("");
 
   btn.innerHTML = `
     <span class="work-row-kind">Implementation</span>

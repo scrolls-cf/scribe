@@ -1,4 +1,6 @@
 import {
+  fetchPlanRevision,
+  fetchPlanRevisions,
   formatAge,
   lockSummary,
   planBoardStatus,
@@ -9,6 +11,7 @@ import {
   revisionSummaryLabel,
   shouldShowDiffToggle,
 } from "./api.js";
+import { mountRevisionTimeline } from "./revision-timeline.js";
 import {
   mountBodyViewToggle,
   renderDiffPanelHtml,
@@ -228,6 +231,13 @@ export function renderPlanDetail(root, plan, opts = {}) {
   });
   renderUserInstructions(root, plan);
   applyBody();
+
+  const timeline = root.querySelector("#plan-revision-timeline");
+  mountRevisionTimeline(timeline, {
+    summary: plan.revisions_summary ?? null,
+    fetchList: (opts) => fetchPlanRevisions(plan.id, opts),
+    fetchDetail: (id) => fetchPlanRevision(plan.id, id),
+  });
 
   if (doneNotice) {
     doneNotice.hidden = plan.status !== "done";
