@@ -275,6 +275,56 @@ export async function getDiffBodies(
 	};
 }
 
+export function parseRevisionLimit(raw: string | null): number {
+	if (!raw) return 10;
+	const n = Number.parseInt(raw, 10);
+	if (Number.isNaN(n)) return 10;
+	return Math.min(Math.max(n, 1), MAX_REVISIONS);
+}
+
+export async function resolveDefaultBaseEtag(
+	storage: RevisionStorage,
+	kind: RevisionKind,
+	id: string,
+	lastRevision: BodyRevisionMeta | null,
+): Promise<string | null> {
+	if (lastRevision?.base_etag) return lastRevision.base_etag;
+	const index = await loadRevisionIndex(storage, kind, id);
+	return index[0] ?? null;
+}
+
+export async function resolveBodyAtEtag(
+	storage: RevisionStorage,
+	kind: RevisionKind,
+	id: string,
+	record: { body: string; etag: string },
+	etag: string,
+): Promise<string | null> {
+	if (etag === record.etag) return record.body;
+	const snapshot = await getRevision(storage, kind, id, etag);
+	return snapshot?.body ?? null;
+}
+
+export async function buildRevisionDiff(
+	storage: RevisionStorage,
+	kind: RevisionKind,
+	id: string,
+	record: { body: string; etag: string; last_revision: BodyRevisionMeta | null },
+	baseEtag: string | null,
+	headEtag: string | null,
+): Promise<{ base_etag: string; head_etag: string; base_body: string; head_body: string } | null> {
+	const resolvedBase =
+		baseEtag?.trim() ||
+		(await resolveDefaultBaseEtag(storage, kind, id, record.last_revision));
+	if (!resolvedBase) return null;
+
+	const resolvedHead = headEtag?.trim() || record.etag;
+	const headBody = await resolveBodyAtEtag(storage, kind, id, record, resolvedHead);
+	if (headBody === null) return null;
+
+	return getDiffBodies(storage, kind, id, resolvedBase, headBody, resolvedHead);
+}
+
 export async function applyBodyRevisionOnSave<T extends RevisionWriteContext & RevisionSummaryFields>(
 	storage: RevisionStorage,
 	kind: RevisionKind,

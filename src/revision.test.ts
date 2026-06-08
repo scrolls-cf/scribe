@@ -3,9 +3,12 @@ import { describe, it } from "node:test";
 import {
 	MAX_REVISIONS,
 	appendBodyRevision,
+	buildRevisionDiff,
 	countLineDelta,
 	inferRevisionTrigger,
 	loadRevisionIndex,
+	parseRevisionLimit,
+	resolveBodyAtEtag,
 	revisionIndexKey,
 	revisionStorageKey,
 	trimRevisionIndex,
@@ -49,6 +52,13 @@ function specCtx(
 }
 
 describe("revision helpers", () => {
+	it("parses revision limit with cap", () => {
+		assert.equal(parseRevisionLimit(null), 10);
+		assert.equal(parseRevisionLimit("5"), 5);
+		assert.equal(parseRevisionLimit("99"), MAX_REVISIONS);
+		assert.equal(parseRevisionLimit("bad"), 10);
+	});
+
 	it("counts line delta via LCS", () => {
 		const delta = countLineDelta("a\nb\nc", "a\nx\nc\nd");
 		assert.equal(delta.lines_removed, 1);
@@ -219,5 +229,79 @@ describe("appendBodyRevision", { concurrency: 1 }, () => {
 		assert.equal(result.revisions_count, MAX_REVISIONS);
 		assert.equal(storage.has(revisionStorageKey(kind, id, "old-19")), false);
 		assert.equal(storage.has(revisionStorageKey(kind, id, "current-etag")), true);
+	});
+});
+
+describe("buildRevisionDiff", { concurrency: 1 }, () => {
+	it("returns diff for default base and current head", async () => {
+		const storage = new MockStorage();
+		const slug = "diff-spec";
+		await appendBodyRevision(
+			storage,
+			"spec",
+			slug,
+			specCtx("# v1", "etag-v1"),
+			specCtx("# v2", "etag-v2"),
+		);
+		const diff = await buildRevisionDiff(
+			storage,
+			"spec",
+			slug,
+			specCtx("# v2", "etag-v2", {
+				revisions_count: 1,
+				last_revision: {
+					base_etag: "etag-v1",
+					head_etag: "etag-v2",
+					created_at: "2026-01-01T00:00:00.000Z",
+					trigger: "manual",
+				},
+			}),
+			null,
+			null,
+		);
+		assert.ok(diff);
+		assert.equal(diff?.base_body, "# v1");
+		assert.equal(diff?.head_body, "# v2");
+		assert.equal(diff?.head_etag, "etag-v2");
+	});
+
+	it("returns null when base snapshot missing", async () => {
+		const storage = new MockStorage();
+		const diff = await buildRevisionDiff(
+			storage,
+			"spec",
+			"missing",
+			specCtx("# v1", "etag-v1"),
+			"etag-missing",
+			null,
+		);
+		assert.equal(diff, null);
+	});
+
+	it("resolves head body from prior base etag", async () => {
+		const storage = new MockStorage();
+		const slug = "head-spec";
+		await appendBodyRevision(
+			storage,
+			"spec",
+			slug,
+			specCtx("# v1", "etag-v1"),
+			specCtx("# v2", "etag-v2"),
+		);
+		await appendBodyRevision(
+			storage,
+			"spec",
+			slug,
+			specCtx("# v2", "etag-v2"),
+			specCtx("# v3", "etag-v3"),
+		);
+		const atV2 = await resolveBodyAtEtag(
+			storage,
+			"spec",
+			slug,
+			specCtx("# v3", "etag-v3"),
+			"etag-v2",
+		);
+		assert.equal(atV2, "# v2");
 	});
 });

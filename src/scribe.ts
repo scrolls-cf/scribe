@@ -66,7 +66,13 @@ import {
 	toSpecSummary,
 	type SpecRecord,
 } from "./spec.ts";
-import { applyBodyRevisionOnSave } from "./revision.ts";
+import {
+	applyBodyRevisionOnSave,
+	buildRevisionDiff,
+	getRevision,
+	listRevisions,
+	parseRevisionLimit,
+} from "./revision.ts";
 
 export class Scribe extends DurableObject {
 	async alarm(): Promise<void> {
@@ -102,6 +108,21 @@ export class Scribe extends DurableObject {
 			return this.getSpecBody(decodeURIComponent(specBodyMatch[1]));
 		}
 
+		const specRevisionMatch = url.pathname.match(/^\/specs\/([^/]+)\/revisions(?:\/([^/]+))?$/);
+		if (specRevisionMatch && request.method === "GET") {
+			const slug = decodeURIComponent(specRevisionMatch[1]);
+			const baseEtag = specRevisionMatch[2]
+				? decodeURIComponent(specRevisionMatch[2])
+				: null;
+			if (baseEtag) return this.getSpecRevision(slug, baseEtag);
+			return this.listSpecRevisions(slug, url);
+		}
+
+		const specDiffMatch = url.pathname.match(/^\/specs\/([^/]+)\/diff$/);
+		if (specDiffMatch && request.method === "GET") {
+			return this.getSpecDiff(decodeURIComponent(specDiffMatch[1]), url);
+		}
+
 		const specPatchMatch = url.pathname.match(/^\/specs\/([^/]+)$/);
 		if (specPatchMatch) {
 			const slug = decodeURIComponent(specPatchMatch[1]);
@@ -120,6 +141,21 @@ export class Scribe extends DurableObject {
 			const id = decodeURIComponent(planLockMatch[1]);
 			if (request.method === "POST") return this.acquirePlanLock(id, request);
 			if (request.method === "DELETE") return this.releasePlanLock(id, request);
+		}
+
+		const planRevisionMatch = url.pathname.match(/^\/plans\/([^/]+)\/revisions(?:\/([^/]+))?$/);
+		if (planRevisionMatch && request.method === "GET") {
+			const id = decodeURIComponent(planRevisionMatch[1]);
+			const baseEtag = planRevisionMatch[2]
+				? decodeURIComponent(planRevisionMatch[2])
+				: null;
+			if (baseEtag) return this.getPlanRevision(id, baseEtag);
+			return this.listPlanRevisions(id, url);
+		}
+
+		const planDiffMatch = url.pathname.match(/^\/plans\/([^/]+)\/diff$/);
+		if (planDiffMatch && request.method === "GET") {
+			return this.getPlanDiff(decodeURIComponent(planDiffMatch[1]), url);
 		}
 
 		const planPatchMatch = url.pathname.match(/^\/plans\/([^/]+)$/);
@@ -216,6 +252,49 @@ export class Scribe extends DurableObject {
 			{ ok: true, slug: spec.slug, body: spec.body, etag: spec.etag },
 			{ headers: etagResponseHeaders(spec.etag) },
 		);
+	}
+
+	private async listSpecRevisions(slug: string, url: URL): Promise<Response> {
+		const stored = await this.ctx.storage.get<SpecRecord>(specKey(slug));
+		if (!stored) {
+			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
+		}
+		const spec = normalizeSpecRecord(stored);
+		const limit = parseRevisionLimit(url.searchParams.get("limit"));
+		const result = await listRevisions(this.ctx.storage, "spec", slug, limit);
+		return Response.json({ ok: true, revisions: result.revisions, count: result.count });
+	}
+
+	private async getSpecRevision(slug: string, baseEtag: string): Promise<Response> {
+		const stored = await this.ctx.storage.get<SpecRecord>(specKey(slug));
+		if (!stored) {
+			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
+		}
+		const revision = await getRevision(this.ctx.storage, "spec", slug, baseEtag);
+		if (!revision) {
+			return Response.json({ ok: false, error: "revision not found" }, { status: 404 });
+		}
+		return Response.json({ ok: true, revision });
+	}
+
+	private async getSpecDiff(slug: string, url: URL): Promise<Response> {
+		const stored = await this.ctx.storage.get<SpecRecord>(specKey(slug));
+		if (!stored) {
+			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
+		}
+		const spec = normalizeSpecRecord(stored);
+		const diff = await buildRevisionDiff(
+			this.ctx.storage,
+			"spec",
+			slug,
+			spec,
+			url.searchParams.get("base"),
+			url.searchParams.get("head"),
+		);
+		if (!diff) {
+			return Response.json({ ok: false, error: "revision not found" }, { status: 404 });
+		}
+		return Response.json({ ok: true, ...diff });
 	}
 
 	private async loadSpecRecord(slug: string, stored: SpecRecord): Promise<SpecRecord> {
@@ -466,6 +545,48 @@ export class Scribe extends DurableObject {
 			},
 			{ headers: etagResponseHeaders(plan.etag) },
 		);
+	}
+
+	private async listPlanRevisions(id: string, url: URL): Promise<Response> {
+		const stored = await this.ctx.storage.get<PlanRecord>(planKey(id));
+		if (!stored) {
+			return Response.json({ ok: false, error: "plan not found" }, { status: 404 });
+		}
+		const limit = parseRevisionLimit(url.searchParams.get("limit"));
+		const result = await listRevisions(this.ctx.storage, "plan", id, limit);
+		return Response.json({ ok: true, revisions: result.revisions, count: result.count });
+	}
+
+	private async getPlanRevision(id: string, baseEtag: string): Promise<Response> {
+		const stored = await this.ctx.storage.get<PlanRecord>(planKey(id));
+		if (!stored) {
+			return Response.json({ ok: false, error: "plan not found" }, { status: 404 });
+		}
+		const revision = await getRevision(this.ctx.storage, "plan", id, baseEtag);
+		if (!revision) {
+			return Response.json({ ok: false, error: "revision not found" }, { status: 404 });
+		}
+		return Response.json({ ok: true, revision });
+	}
+
+	private async getPlanDiff(id: string, url: URL): Promise<Response> {
+		const stored = await this.ctx.storage.get<PlanRecord>(planKey(id));
+		if (!stored) {
+			return Response.json({ ok: false, error: "plan not found" }, { status: 404 });
+		}
+		const plan = normalizePlanRecord(stored);
+		const diff = await buildRevisionDiff(
+			this.ctx.storage,
+			"plan",
+			id,
+			plan,
+			url.searchParams.get("base"),
+			url.searchParams.get("head"),
+		);
+		if (!diff) {
+			return Response.json({ ok: false, error: "revision not found" }, { status: 404 });
+		}
+		return Response.json({ ok: true, ...diff });
 	}
 
 	private async savePlan(request: Request): Promise<Response> {
