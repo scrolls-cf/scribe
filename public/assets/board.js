@@ -87,8 +87,6 @@ let cachedWorkspaces = new Map();
 let lastFocusedButton = null;
 let workFilter = "all";
 let workFilterSelect = null;
-let showSmoke = false;
-let smokeToggle = null;
 let workPaneTabs = null;
 let boardPane =
   sessionStorage.getItem(BOARD_PANE_KEY) === BOARD_PANE_COMPLETED
@@ -263,34 +261,13 @@ function filterBoardData(specs, plans) {
 
 /** Hide ged-smoke-* artifacts from active board unless showSmoke is on. */
 function applySmokeFilter(specs, plans) {
-  if (showSmoke) return { specs, plans };
   return {
     specs: specs.filter((s) => !isSmokeArtifact(s)),
     plans: plans.filter((p) => !isSmokeArtifact(p)),
   };
 }
 
-function syncSmokeToggle() {
-  if (!workBoardHint) return;
-  if (!smokeToggle) {
-    smokeToggle = document.createElement("label");
-    smokeToggle.className = "work-smoke-toggle";
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.className = "work-smoke-toggle-input";
-    input.setAttribute("aria-label", "Show smoke test artifacts");
-    input.addEventListener("change", () => {
-      showSmoke = input.checked;
-      renderCurrentBoard();
-    });
-    smokeToggle.append(input, document.createTextNode(" Show smoke"));
-    workBoardHint.append(smokeToggle);
-  }
-  smokeToggle.querySelector("input").checked = showSmoke;
-}
-
 function syncBoardControls(total, { pane = boardPane } = {}) {
-  syncSmokeToggle();
   const activeUnits = workUnitCount(
     applySmokeFilter(cachedSpecs, cachedPlans).specs,
     applySmokeFilter(cachedSpecs, cachedPlans).plans,

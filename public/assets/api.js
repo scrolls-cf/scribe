@@ -245,6 +245,7 @@ export function planBoardStatus(plan) {
   if (plan.status === "blocked") return "blocked";
   if (plan.status === "in_progress") return "in_progress";
   if (plan.active_phase?.status === "active") return "in_progress";
+  if ((plan.phases ?? []).some((p) => p.status === "active")) return "in_progress";
   const ratio = plan.completion_ratio ?? 0;
   if (ratio > 0 && ratio < 1) return "in_progress";
   return "ready";

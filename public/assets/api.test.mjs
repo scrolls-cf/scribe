@@ -135,6 +135,21 @@ describe("planBoardStatus", () => {
       "in_progress",
     );
   });
+
+  it("in_progress when a phase row is active", () => {
+    assert.equal(
+      planBoardStatus({
+        status: "ready",
+        phases: [
+          { id: "p1", status: "done" },
+          { id: "p2", status: "active" },
+        ],
+        phases_done: 1,
+        phases_total: 2,
+      }),
+      "in_progress",
+    );
+  });
 });
 
 describe("planProgressLabel", () => {
