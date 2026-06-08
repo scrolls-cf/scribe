@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   mergePlansForActiveSpecs,
+  partitionCompletedWork,
   planBoardStatus,
   planBoardStatusLabel,
   planPhasesComplete,
@@ -10,7 +11,52 @@ import {
   specBoardStatusLabel,
   specOrchestrationLabel,
   specOrchestrationLabels,
+  workUnitCount,
 } from "./api.js";
+
+describe("partitionCompletedWork", () => {
+  it("keeps done specs and done plans", () => {
+    const { specs, plans } = partitionCompletedWork(
+      [
+        { slug: "ged-a", status: "done" },
+        { slug: "ged-b", status: "ready" },
+      ],
+      [
+        { id: "p1", spec_slug: "ged-a", status: "done" },
+        { id: "p2", spec_slug: "ged-b", status: "in_progress" },
+      ],
+    );
+    assert.equal(specs.length, 1);
+    assert.equal(specs[0].slug, "ged-a");
+    assert.equal(plans.length, 1);
+    assert.equal(plans[0].id, "p1");
+  });
+
+  it("includes phase-complete plans for done specs", () => {
+    const { plans } = partitionCompletedWork(
+      [{ slug: "ged-a", status: "done" }],
+      [
+        {
+          id: "p1",
+          spec_slug: "ged-a",
+          status: "ready",
+          phases_done: 6,
+          phases_total: 6,
+        },
+      ],
+    );
+    assert.equal(plans.length, 1);
+  });
+});
+
+describe("workUnitCount", () => {
+  it("counts specs plus detached orphan slug groups", () => {
+    assert.equal(
+      workUnitCount([{ slug: "a" }], [{ spec_slug: "b" }, { spec_slug: "b" }]),
+      2,
+    );
+  });
+});
 
 describe("mergePlansForActiveSpecs", () => {
   it("keeps done plans when parent spec is on the board", () => {

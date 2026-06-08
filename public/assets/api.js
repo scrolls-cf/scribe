@@ -239,6 +239,33 @@ export function mergePlansForActiveSpecs(allPlans, activeSpecs) {
   );
 }
 
+/**
+ * Completed board: specs and plans with terminal `status: done`.
+ * @param {Array<{ status?: string, slug?: string }>} allSpecs
+ * @param {Array<{ status?: string, spec_slug?: string }>} allPlans
+ */
+export function partitionCompletedWork(allSpecs, allPlans) {
+  const specs = allSpecs.filter((s) => s.status === "done");
+  const doneSlugs = new Set(specs.map((s) => s.slug));
+  const plans = allPlans.filter(
+    (p) => p.status === "done" || (doneSlugs.has(p.spec_slug) && planPhasesComplete(p)),
+  );
+  return { specs, plans };
+}
+
+/**
+ * Board work-unit count: one per spec row plus one per detached orphan slug group.
+ * @param {Array<{ slug: string }>} specs
+ * @param {Array<{ spec_slug?: string }>} plans
+ */
+export function workUnitCount(specs, plans) {
+  const specSlugs = new Set(specs.map((s) => s.slug));
+  const orphanSlugs = new Set(
+    plans.filter((p) => !specSlugs.has(p.spec_slug)).map((p) => p.spec_slug || "unknown"),
+  );
+  return specs.length + orphanSlugs.size;
+}
+
 export function planLinkLabel(plan) {
   const parts = [
     plan.title,

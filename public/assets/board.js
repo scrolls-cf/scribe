@@ -5,6 +5,7 @@ import {
   lockTreeSummary,
   workspaceEnvSnippet,
   workspaceTreeSummary,
+  partitionCompletedWork,
   planIdFromPath,
   mergePlansForActiveSpecs,
   planBoardStatus,
@@ -16,6 +17,7 @@ import {
   specBoardStatus,
   specBoardStatusLabel,
   specOrchestrationLabels,
+  workUnitCount,
 } from "./api.js";
 import {
   isSmokeArtifact,
@@ -55,11 +57,18 @@ const specDetailRoot = document.getElementById("spec-detail");
 const planDetailRoot = document.getElementById("plan-detail");
 
 const WORK_FILTER_THRESHOLD = 8;
+const BOARD_PANE_KEY = "scribe-board-pane";
+const BOARD_PANE_ACTIVE = "active";
+const BOARD_PANE_COMPLETED = "completed";
 
 let activeSlug = null;
 let activePlanId = null;
 let cachedSpecs = [];
 let cachedPlans = [];
+let cachedCompletedSpecs = [];
+let cachedCompletedPlans = [];
+let completedLoaded = false;
+let completedLoading = false;
 /** @type {Map<string, object>} */
 let cachedWorkspaces = new Map();
 let lastFocusedButton = null;
@@ -67,6 +76,11 @@ let workFilter = "all";
 let workFilterSelect = null;
 let showSmoke = false;
 let smokeToggle = null;
+let workPaneTabs = null;
+let boardPane =
+  sessionStorage.getItem(BOARD_PANE_KEY) === BOARD_PANE_COMPLETED
+    ? BOARD_PANE_COMPLETED
+    : BOARD_PANE_ACTIVE;
 
 function isMobileDetail() {
   return window.matchMedia("(max-width: 768px)").matches;
@@ -90,13 +104,123 @@ function focusDetailOnMobile() {
   target.focus();
 }
 
-/** Active work units: one per on-board spec; detached orphan groups count once per completed spec slug. */
-function activeWorkUnitCount(specs, plans) {
-  const specSlugs = new Set(specs.map((s) => s.slug));
-  const orphanSlugs = new Set(
-    plans.filter((p) => !specSlugs.has(p.spec_slug)).map((p) => p.spec_slug || "unknown"),
-  );
-  return specs.length + orphanSlugs.size;
+function isCompletedPane() {
+  return boardPane === BOARD_PANE_COMPLETED;
+}
+
+function getCurrentSpecs() {
+  return isCompletedPane() ? cachedCompletedSpecs : cachedSpecs;
+}
+
+function getCurrentPlans() {
+  return isCompletedPane() ? cachedCompletedPlans : cachedPlans;
+}
+
+function allCachedPlans() {
+  if (!cachedCompletedPlans.length) return cachedPlans;
+  const seen = new Set(cachedPlans.map((p) => p.id));
+  const merged = [...cachedPlans];
+  for (const plan of cachedCompletedPlans) {
+    if (!seen.has(plan.id)) merged.push(plan);
+  }
+  return merged;
+}
+
+function setWorkHeadingLabel(pane) {
+  if (!workHeading) return;
+  let labelEl = workHeading.querySelector(".work-heading-label");
+  if (!labelEl) {
+    labelEl = document.createElement("span");
+    labelEl.className = "work-heading-label";
+    workHeading.prepend(labelEl);
+  }
+  labelEl.textContent =
+    pane === BOARD_PANE_COMPLETED ? "Completed / shipped" : "Active work";
+}
+
+function completedPaneCrumb() {
+  return {
+    label: "Completed",
+    onClick: () => {
+      if (!isCompletedPane()) switchBoardPane(BOARD_PANE_COMPLETED);
+    },
+  };
+}
+
+function syncBoardTabs(activeCount, completedCount) {
+  const rail = workHeading?.closest(".board-rail-work");
+  if (!rail) return;
+
+  if (!workPaneTabs) {
+    workPaneTabs = document.createElement("div");
+    workPaneTabs.id = "work-pane-tabs";
+    workPaneTabs.className = "work-pane-tabs";
+    workPaneTabs.setAttribute("role", "tablist");
+    workPaneTabs.setAttribute("aria-label", "Work board");
+    rail.insertBefore(workPaneTabs, workHeading);
+  }
+
+  workPaneTabs.replaceChildren();
+
+  for (const [pane, label] of [
+    [BOARD_PANE_ACTIVE, "Active"],
+    [BOARD_PANE_COMPLETED, "Completed"],
+  ]) {
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.className = "work-pane-tab";
+    tab.setAttribute("role", "tab");
+    tab.id = `work-pane-tab-${pane}`;
+    tab.setAttribute("aria-controls", "work-list");
+    tab.setAttribute("aria-selected", pane === boardPane ? "true" : "false");
+    tab.tabIndex = pane === boardPane ? 0 : -1;
+
+    const text = document.createElement("span");
+    text.textContent = label;
+    tab.append(text);
+
+    const count =
+      pane === BOARD_PANE_ACTIVE
+        ? activeCount
+        : completedLoaded
+          ? completedCount
+          : null;
+    if (count !== null && count > 0) {
+      const badge = document.createElement("span");
+      badge.className = "work-pane-tab-badge";
+      badge.textContent = String(count);
+      badge.setAttribute(
+        "aria-label",
+        count === 1 ? "1 item" : `${count} items`,
+      );
+      tab.append(badge);
+    }
+
+    tab.addEventListener("click", () => switchBoardPane(pane));
+    workPaneTabs.append(tab);
+  }
+}
+
+function switchBoardPane(pane) {
+  if (pane === boardPane) return;
+  boardPane = pane;
+  sessionStorage.setItem(BOARD_PANE_KEY, pane);
+  hideBoardError();
+  if (pane === BOARD_PANE_COMPLETED && !completedLoaded) {
+    loadCompletedBoard();
+    return;
+  }
+  renderCurrentBoard();
+}
+
+function renderCurrentBoard() {
+  if (isCompletedPane()) {
+    renderBoard(cachedCompletedSpecs, cachedCompletedPlans, {
+      pane: BOARD_PANE_COMPLETED,
+    });
+  } else {
+    renderBoard(cachedSpecs, cachedPlans, { pane: BOARD_PANE_ACTIVE });
+  }
 }
 
 function specMatchesFilter(spec) {
@@ -144,7 +268,7 @@ function syncSmokeToggle() {
     input.setAttribute("aria-label", "Show smoke test artifacts");
     input.addEventListener("change", () => {
       showSmoke = input.checked;
-      renderWorkBoard(cachedSpecs, cachedPlans);
+      renderCurrentBoard();
     });
     smokeToggle.append(input, document.createTextNode(" Show smoke"));
     workBoardHint.append(smokeToggle);
@@ -152,11 +276,21 @@ function syncSmokeToggle() {
   smokeToggle.querySelector("input").checked = showSmoke;
 }
 
-function syncBoardControls(total) {
+function syncBoardControls(total, { pane = boardPane } = {}) {
   syncSmokeToggle();
+  const activeUnits = workUnitCount(
+    applySmokeFilter(cachedSpecs, cachedPlans).specs,
+    applySmokeFilter(cachedSpecs, cachedPlans).plans,
+  );
+  const completedUnits = completedLoaded
+    ? workUnitCount(cachedCompletedSpecs, cachedCompletedPlans)
+    : 0;
+  syncBoardTabs(activeUnits, completedUnits);
+  setWorkHeadingLabel(pane);
+
   if (!workHeading) return;
 
-  if (total <= WORK_FILTER_THRESHOLD) {
+  if (isCompletedPane() || total <= WORK_FILTER_THRESHOLD) {
     if (workFilterSelect) {
       workFilterSelect.remove();
       workFilterSelect = null;
@@ -176,7 +310,7 @@ function syncBoardControls(total) {
     `;
     workFilterSelect.addEventListener("change", () => {
       workFilter = workFilterSelect.value;
-      renderWorkBoard(cachedSpecs, cachedPlans);
+      renderBoard(cachedSpecs, cachedPlans, { pane: BOARD_PANE_ACTIVE });
     });
     workHeading.append(workFilterSelect);
   }
@@ -261,7 +395,7 @@ function detailFromHash() {
 }
 
 function plansForSpec(slug) {
-  return cachedPlans.filter((plan) => plan.spec_slug === slug);
+  return getCurrentPlans().filter((plan) => plan.spec_slug === slug);
 }
 
 function hasDetailSelection() {
@@ -461,16 +595,43 @@ function appendImplList(plans) {
   return ul;
 }
 
-function renderWorkBoard(specs, plans) {
+function setWorkEmptyCopy(pane) {
+  if (!workEmpty) return;
+  const lead = workEmpty.querySelector(".panel-empty-lead");
+  const hint = workEmpty.querySelector(".panel-empty-hint");
+  if (pane === BOARD_PANE_COMPLETED) {
+    if (lead) lead.textContent = "—";
+    if (hint) hint.textContent = "No completed specs or implementations yet.";
+  } else {
+    if (lead) lead.textContent = "—";
+    if (hint) {
+      hint.textContent =
+        "No specs or implementations are in flight. Open a completed spec by slug in the URL.";
+    }
+  }
+}
+
+function renderBoard(specs, plans, { pane = BOARD_PANE_ACTIVE } = {}) {
   if (!workList || !workEmpty) return;
   setLoading(workLoading, false);
   workList.replaceChildren();
-  cachedSpecs = specs;
-  cachedPlans = plans;
+
+  if (pane === BOARD_PANE_ACTIVE) {
+    cachedSpecs = specs;
+    cachedPlans = plans;
+  } else {
+    cachedCompletedSpecs = specs;
+    cachedCompletedPlans = plans;
+  }
 
   const smokeFiltered = applySmokeFilter(specs, plans);
-  syncBoardControls(activeWorkUnitCount(smokeFiltered.specs, smokeFiltered.plans));
-  const filtered = filterBoardData(smokeFiltered.specs, smokeFiltered.plans);
+  syncBoardControls(workUnitCount(smokeFiltered.specs, smokeFiltered.plans), {
+    pane,
+  });
+  const filtered =
+    pane === BOARD_PANE_ACTIVE
+      ? filterBoardData(smokeFiltered.specs, smokeFiltered.plans)
+      : smokeFiltered;
   specs = filtered.specs;
   plans = filtered.plans;
 
@@ -480,21 +641,23 @@ function renderWorkBoard(specs, plans) {
   if (!specs.length && !orphanPlans.length) {
     workList.hidden = true;
     workEmpty.hidden = false;
+    setWorkEmptyCopy(pane);
     if (workCount) workCount.hidden = true;
-    if (workBoardHint) workBoardHint.hidden = true;
+    if (workBoardHint) workBoardHint.hidden = pane !== BOARD_PANE_ACTIVE;
     return;
   }
 
   workEmpty.hidden = true;
   workList.hidden = false;
-  if (workBoardHint) workBoardHint.hidden = false;
+  if (workBoardHint) workBoardHint.hidden = pane !== BOARD_PANE_ACTIVE;
   if (workCount) {
-    const units = activeWorkUnitCount(specs, plans);
+    const units = workUnitCount(specs, plans);
     workCount.textContent = String(units);
     workCount.hidden = !units;
+    const unitWord = pane === BOARD_PANE_COMPLETED ? "completed" : "active";
     workCount.setAttribute(
       "aria-label",
-      units === 1 ? "1 active work unit" : `${units} active work units`,
+      units === 1 ? `1 ${unitWord} work unit` : `${units} ${unitWord} work units`,
     );
   }
 
@@ -540,7 +703,7 @@ function closeDetail({ updateHash = true } = {}) {
   activePlanId = null;
   setDetailOpen(false);
   document.title = "scribe · devscrolls";
-  renderWorkBoard(cachedSpecs, cachedPlans);
+  renderCurrentBoard();
   if (updateHash) {
     const url = new URL(window.location.href);
     url.hash = "";
@@ -557,7 +720,7 @@ async function openSpec(slug, { updateHash = true } = {}) {
   setDetailOpen(true);
   hideDetailViews();
   clearBreadcrumb();
-  renderWorkBoard(cachedSpecs, cachedPlans);
+  renderCurrentBoard();
   if (detailLoading) {
     clearDetailError();
     setLoadingText(detailLoading, DETAIL_LOADING);
@@ -582,11 +745,16 @@ async function openSpec(slug, { updateHash = true } = {}) {
     }
     if (specDetailRoot) {
       specDetailRoot.hidden = false;
-      const linkedPlans = resolveLinkedPlanRefs(slug, spec.body, cachedPlans);
+      const linkedPlans = resolveLinkedPlanRefs(slug, spec.body, allCachedPlans());
       renderSpecDetail(specDetailRoot, spec, {
         linkedPlans,
         workspace: cachedWorkspaces.get(spec.slug) ?? null,
       });
+    }
+    if (isCompletedPane() || spec.status === "done") {
+      setBreadcrumb([completedPaneCrumb(), { label: spec.title }]);
+    } else {
+      clearBreadcrumb();
     }
     document.title = `${spec.title} · scribe · devscrolls`;
     detailPanel?.scrollTo(0, 0);
@@ -602,7 +770,7 @@ async function openPlan(id, { updateHash = true } = {}) {
   activeSlug = null;
   setDetailOpen(true);
   hideDetailViews();
-  renderWorkBoard(cachedSpecs, cachedPlans);
+  renderCurrentBoard();
   if (detailLoading) {
     clearDetailError();
     setLoadingText(detailLoading, DETAIL_LOADING);
@@ -630,10 +798,9 @@ async function openPlan(id, { updateHash = true } = {}) {
       renderPlanDetail(planDetailRoot, plan);
     }
 
-    const specMeta = cachedSpecs.find((s) => s.slug === plan.spec_slug);
+    const specMeta = getCurrentSpecs().find((s) => s.slug === plan.spec_slug);
     const specTitle = specMeta?.title || plan.spec_slug;
-
-    setBreadcrumb([
+    const crumbs = [
       {
         label: specTitle,
         title: plan.spec_slug,
@@ -645,13 +812,69 @@ async function openPlan(id, { updateHash = true } = {}) {
         },
       },
       { label: plan.title },
-    ]);
+    ];
+    if (isCompletedPane() || plan.status === "done") {
+      setBreadcrumb([completedPaneCrumb(), ...crumbs]);
+    } else {
+      setBreadcrumb(crumbs);
+    }
 
     document.title = `${plan.title} · scribe · devscrolls`;
     detailPanel?.scrollTo(0, 0);
     focusDetailOnMobile();
   } catch (e) {
     showDetailError(e.message || "Could not load plan", () => openPlan(id, { updateHash: false }));
+  }
+}
+
+async function loadCompletedBoard() {
+  if (completedLoading) return;
+  completedLoading = true;
+  setBusy(true);
+  hideBoardError();
+  setLoadingText(workLoading, [
+    "Loading completed work…",
+    "Fetching shipped specs and implementations…",
+  ]);
+  setLoading(workLoading, true);
+  if (workList) workList.hidden = true;
+  if (workEmpty) workEmpty.hidden = true;
+
+  try {
+    const [specData, planData, workspaceData] = await Promise.all([
+      apiFetch("specs?all=true"),
+      apiFetch("plans?all=true"),
+      apiFetch("workspaces").catch(() => ({ workspaces: [] })),
+    ]);
+    const partitioned = partitionCompletedWork(
+      specData.specs || [],
+      planData.plans || [],
+    );
+    for (const ws of workspaceData.workspaces || []) {
+      cachedWorkspaces.set(ws.id, ws);
+    }
+    completedLoaded = true;
+    renderBoard(partitioned.specs, partitioned.plans, {
+      pane: BOARD_PANE_COMPLETED,
+    });
+  } catch (e) {
+    setLoading(workLoading, false);
+    const msg =
+      e instanceof TypeError
+        ? "Could not reach scribe. Check the network, then try again."
+        : e.message || "Could not load completed work";
+    showBoardError(msg, () => loadCompletedBoard());
+    if (workEmpty) workEmpty.hidden = true;
+    if (workList) workList.hidden = true;
+  } finally {
+    completedLoading = false;
+    setBusy(false);
+    const fromHash = detailFromHash();
+    const slug = fromHash?.type === "spec" ? fromHash.id : specSlugFromPath();
+    const planId = fromHash?.type === "plan" ? fromHash.id : planIdFromPath();
+    if (planId) openPlan(planId, { updateHash: false });
+    else if (slug) openSpec(slug, { updateHash: false });
+    else syncDetailChrome();
   }
 }
 
@@ -672,7 +895,12 @@ async function loadBoard() {
     const specs = specData.specs || [];
     const plans = mergePlansForActiveSpecs(planData.plans || [], specs);
     cachedWorkspaces = new Map((workspaceData.workspaces || []).map((ws) => [ws.id, ws]));
-    renderWorkBoard(specs, plans);
+    if (isCompletedPane()) {
+      renderBoard(specs, plans, { pane: BOARD_PANE_ACTIVE });
+      await loadCompletedBoard();
+    } else {
+      renderBoard(specs, plans, { pane: BOARD_PANE_ACTIVE });
+    }
   } catch (e) {
     setLoading(workLoading, false);
     const msg =
@@ -684,13 +912,20 @@ async function loadBoard() {
     if (workList) workList.hidden = true;
   } finally {
     setBusy(false);
-    const fromHash = detailFromHash();
-    const slug = fromHash?.type === "spec" ? fromHash.id : specSlugFromPath();
-    const planId = fromHash?.type === "plan" ? fromHash.id : planIdFromPath();
-    if (planId) openPlan(planId, { updateHash: false });
-    else if (slug) openSpec(slug, { updateHash: false });
-    else syncDetailChrome();
+    if (!isCompletedPane()) {
+      const fromHash = detailFromHash();
+      const slug = fromHash?.type === "spec" ? fromHash.id : specSlugFromPath();
+      const planId = fromHash?.type === "plan" ? fromHash.id : planIdFromPath();
+      if (planId) openPlan(planId, { updateHash: false });
+      else if (slug) openSpec(slug, { updateHash: false });
+      else syncDetailChrome();
+    }
   }
+}
+
+function refreshBoard() {
+  if (isCompletedPane()) loadCompletedBoard();
+  else loadBoard();
 }
 
 window.addEventListener("keydown", (e) => {
@@ -703,7 +938,7 @@ window.addEventListener("keydown", (e) => {
   const tag = document.activeElement?.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA") return;
   e.preventDefault();
-  loadBoard();
+  refreshBoard();
 });
 
 window.addEventListener("popstate", () => {
