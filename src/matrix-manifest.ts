@@ -16,6 +16,11 @@ export const SCRIBE_MATRIX_MANIFEST: MatrixManifest = {
 		{ method: "GET", path: "/v1/projects/:project/specs/:slug/diff", summary: "Diff spec bodies by etag" },
 		{ method: "POST", path: "/v1/projects/:project/specs", summary: "Save design spec" },
 		{ method: "PATCH", path: "/v1/projects/:project/specs/:slug", summary: "Update status or phases" },
+		{
+			method: "POST",
+			path: "/v1/projects/:project/orchestrate/:specSlug/transition",
+			summary: "Atomic orchestration gate transition (review_passed, plan_review_passed, ship)",
+		},
 		{ method: "POST", path: "/v1/projects/:project/specs/:slug/lock", summary: "Acquire agent lock" },
 		{ method: "DELETE", path: "/v1/projects/:project/specs/:slug/lock", summary: "Release agent lock" },
 		{ method: "GET", path: "/v1/projects/:project/plans/:id", summary: "Read one plan" },

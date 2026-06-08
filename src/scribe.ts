@@ -58,6 +58,7 @@ import {
 import { parseSpecFooterFields } from "./spec-footer.ts";
 import {
 	parsePatchSpecInput,
+	linkSpecPlanId,
 	normalizeSpecRecord,
 	parseSaveSpecInput,
 	SPEC_INDEX_KEY,
@@ -67,12 +68,31 @@ import {
 	type SpecRecord,
 } from "./spec.ts";
 import {
+	deleteSpecStorage,
+	hydrateSpecRecord,
+	needsFooterBodyParse,
+	putSpecRecord,
+	resolveSpecBody,
+} from "./spec-storage.ts";
+import {
 	applyBodyRevisionOnSave,
 	buildRevisionDiff,
 	getRevision,
 	listRevisions,
 	parseRevisionLimit,
 } from "./revision.ts";
+import {
+	applyImplementStart,
+	applyPhaseDone,
+	applyPlanCreated,
+	applyPlanGateC,
+	applyPlanReviewPassed,
+	applyReviewPassed,
+	applyShip,
+	OrchestratePreconditionError,
+	parseOrchestrateRequest,
+	TRANSITION_CACHE_PREFIX,
+} from "./orchestrate.ts";
 
 export class Scribe extends DurableObject {
 	async alarm(): Promise<void> {
@@ -121,6 +141,11 @@ export class Scribe extends DurableObject {
 		const specDiffMatch = url.pathname.match(/^\/specs\/([^/]+)\/diff$/);
 		if (specDiffMatch && request.method === "GET") {
 			return this.getSpecDiff(decodeURIComponent(specDiffMatch[1]), url);
+		}
+
+		const orchestrateMatch = url.pathname.match(/^\/orchestrate\/([^/]+)\/transition$/);
+		if (orchestrateMatch && request.method === "POST") {
+			return this.orchestrateTransition(decodeURIComponent(orchestrateMatch[1]), request);
 		}
 
 		const specPatchMatch = url.pathname.match(/^\/specs\/([^/]+)$/);
@@ -233,12 +258,19 @@ export class Scribe extends DurableObject {
 		if (!stored) {
 			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
 		}
-		const spec = await this.loadSpecRecord(slug, stored);
+		const metadata = normalizeSpecRecord(stored);
 		const view = url.searchParams.get("view") ?? "full";
 		if (view === "summary") {
-			const orient = toSpecOrientView(spec, parseSpecFooterFields(spec.body));
-			return Response.json({ ok: true, spec: orient }, { headers: etagResponseHeaders(spec.etag) });
+			const footerBody = needsFooterBodyParse(metadata)
+				? await resolveSpecBody(this.ctx.storage, slug, stored)
+				: "";
+			const orient = toSpecOrientView(metadata, parseSpecFooterFields(footerBody));
+			return Response.json(
+				{ ok: true, spec: orient },
+				{ headers: etagResponseHeaders(metadata.etag) },
+			);
 		}
+		const spec = await this.loadSpecRecord(slug, stored);
 		return Response.json({ ok: true, spec }, { headers: etagResponseHeaders(spec.etag) });
 	}
 
@@ -247,10 +279,11 @@ export class Scribe extends DurableObject {
 		if (!stored) {
 			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
 		}
-		const spec = await this.loadSpecRecord(slug, stored);
+		const metadata = normalizeSpecRecord(stored);
+		const body = await resolveSpecBody(this.ctx.storage, slug, stored);
 		return Response.json(
-			{ ok: true, slug: spec.slug, body: spec.body, etag: spec.etag },
-			{ headers: etagResponseHeaders(spec.etag) },
+			{ ok: true, slug: metadata.slug, body, etag: metadata.etag },
+			{ headers: etagResponseHeaders(metadata.etag) },
 		);
 	}
 
@@ -282,7 +315,7 @@ export class Scribe extends DurableObject {
 		if (!stored) {
 			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
 		}
-		const spec = normalizeSpecRecord(stored);
+		const spec = await hydrateSpecRecord(this.ctx.storage, slug, stored);
 		const diff = await buildRevisionDiff(
 			this.ctx.storage,
 			"spec",
@@ -298,9 +331,9 @@ export class Scribe extends DurableObject {
 	}
 
 	private async loadSpecRecord(slug: string, stored: SpecRecord): Promise<SpecRecord> {
-		const record = normalizeSpecRecord(stored);
+		const record = await hydrateSpecRecord(this.ctx.storage, slug, stored);
 		if (stored.status === "in_progress" && !stored.lock && record.status === "ready") {
-			await this.ctx.storage.put(specKey(slug), record);
+			await putSpecRecord(this.ctx.storage, record);
 		}
 		return record;
 	}
@@ -317,7 +350,9 @@ export class Scribe extends DurableObject {
 			? (raw as { slug: string }).slug.trim()
 			: "";
 		const existingRaw = slug ? await this.ctx.storage.get<SpecRecord>(specKey(slug)) : null;
-		const existing = existingRaw ? normalizeSpecRecord(existingRaw) : null;
+		const existing = existingRaw
+			? await hydrateSpecRecord(this.ctx.storage, slug, existingRaw)
+			: null;
 		const parsed = parseSaveSpecInput(raw, existing);
 		if (!parsed.ok) {
 			return Response.json({ ok: false, error: parsed.error }, { status: 400 });
@@ -333,7 +368,7 @@ export class Scribe extends DurableObject {
 		const slugs = new Set((await this.ctx.storage.get<string[]>(SPEC_INDEX_KEY)) ?? []);
 		slugs.add(record.slug);
 		const created = !existing;
-		await this.ctx.storage.put(specKey(record.slug), record);
+		await putSpecRecord(this.ctx.storage, record);
 		await this.ctx.storage.put(SPEC_INDEX_KEY, [...slugs].sort());
 
 		return Response.json({ ok: true, spec: record }, { status: created ? 201 : 200 });
@@ -344,7 +379,7 @@ export class Scribe extends DurableObject {
 		if (!stored) {
 			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
 		}
-		await this.ctx.storage.delete(specKey(slug));
+		await deleteSpecStorage(this.ctx.storage, slug);
 		const slugs = (await this.ctx.storage.get<string[]>(SPEC_INDEX_KEY)) ?? [];
 		await this.ctx.storage.put(
 			SPEC_INDEX_KEY,
@@ -358,7 +393,7 @@ export class Scribe extends DurableObject {
 		if (!stored) {
 			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
 		}
-		const record = normalizeSpecRecord(stored);
+		const record = await hydrateSpecRecord(this.ctx.storage, slug, stored);
 
 		let raw: unknown;
 		try {
@@ -389,11 +424,24 @@ export class Scribe extends DurableObject {
 				parsed.value.active_phase !== undefined
 					? parsed.value.active_phase
 					: record.active_phase,
+			terminal_skill:
+				parsed.value.terminal_skill !== undefined
+					? parsed.value.terminal_skill
+					: record.terminal_skill,
+			design_lane:
+				parsed.value.design_lane !== undefined ? parsed.value.design_lane : record.design_lane,
+			plan_id: parsed.value.plan_id !== undefined ? parsed.value.plan_id : record.plan_id,
+			review_gate:
+				parsed.value.review_gate !== undefined ? parsed.value.review_gate : record.review_gate,
+			plan_review:
+				parsed.value.plan_review !== undefined ? parsed.value.plan_review : record.plan_review,
+			worker_scope:
+				parsed.value.worker_scope !== undefined ? parsed.value.worker_scope : record.worker_scope,
 			lock: nextStatus === "done" ? null : record.lock,
 			updated_at: now,
 			etag: now,
 		};
-		await this.ctx.storage.put(specKey(slug), updated);
+		await putSpecRecord(this.ctx.storage, updated);
 		if (nextStatus === "done" && record.lock) {
 			await removeLease(this.ctx.storage, { kind: "spec", slug });
 			await removeWorkspaceLease(this.ctx.storage, slug);
@@ -401,12 +449,234 @@ export class Scribe extends DurableObject {
 		return Response.json({ ok: true, spec: updated }, { headers: etagResponseHeaders(updated.etag) });
 	}
 
+	private async orchestrateTransition(slug: string, request: Request): Promise<Response> {
+		let raw: unknown;
+		try {
+			raw = await request.json();
+		} catch {
+			return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 });
+		}
+
+		const parsed = parseOrchestrateRequest(raw);
+		if (!parsed.ok) {
+			return Response.json({ ok: false, error: parsed.error }, { status: 400 });
+		}
+		const req = parsed.value;
+
+		if (req.transition_id) {
+			const cached = await this.ctx.storage.get<string>(
+				`${TRANSITION_CACHE_PREFIX}${req.transition_id}`,
+			);
+			if (cached) {
+				return Response.json(JSON.parse(cached), {
+					headers: { "content-type": "application/json" },
+				});
+			}
+		}
+
+		const stored = await this.ctx.storage.get<SpecRecord>(specKey(slug));
+		if (!stored) {
+			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
+		}
+		const spec = await hydrateSpecRecord(this.ctx.storage, slug, stored);
+
+		if (etagConflict(spec.etag, request)) {
+			return Response.json(
+				{ ok: false, error: "etag mismatch", code: "etag_mismatch", etag: spec.etag },
+				{ status: 409, headers: etagResponseHeaders(spec.etag) },
+			);
+		}
+
+		let plan: PlanRecord | null = null;
+		const planId = req.plan_id ?? spec.plan_id ?? `${slug}-plan`;
+		const planEvents = new Set([
+			"plan_created",
+			"plan_gate_c",
+			"plan_review_passed",
+			"phase_done",
+			"implement_start",
+			"ship",
+		]);
+		if (planEvents.has(req.event)) {
+			const planStored = await this.ctx.storage.get<PlanRecord>(planKey(planId));
+			if (!planStored) {
+				const needsPlan = req.event !== "ship";
+				if (needsPlan) {
+					return Response.json(
+						{ ok: false, error: "plan not found", code: "plan_not_found" },
+						{ status: 404 },
+					);
+				}
+			} else {
+				plan = normalizePlanRecord(planStored);
+			}
+		}
+
+		let nextSpec: SpecRecord;
+		let nextPlan: PlanRecord | null = null;
+		const payload = req.payload ?? {};
+
+		try {
+			if (req.event === "review_passed") {
+				nextSpec = await applyBodyRevisionOnSave(
+					this.ctx.storage,
+					"spec",
+					slug,
+					spec,
+					applyReviewPassed(spec, payload),
+				);
+			} else if (req.event === "plan_created") {
+				if (!plan) throw new OrchestratePreconditionError("plan_required");
+				const pair = applyPlanCreated(spec, plan);
+				nextSpec = await applyBodyRevisionOnSave(
+					this.ctx.storage,
+					"spec",
+					slug,
+					spec,
+					pair.spec,
+				);
+				nextPlan = await applyBodyRevisionOnSave(
+					this.ctx.storage,
+					"plan",
+					plan.id,
+					plan,
+					pair.plan,
+				);
+			} else if (req.event === "plan_gate_c") {
+				if (!plan) throw new OrchestratePreconditionError("plan_required");
+				const pair = applyPlanGateC(spec, plan, payload);
+				nextSpec = await applyBodyRevisionOnSave(
+					this.ctx.storage,
+					"spec",
+					slug,
+					spec,
+					pair.spec,
+				);
+				nextPlan = await applyBodyRevisionOnSave(
+					this.ctx.storage,
+					"plan",
+					plan.id,
+					plan,
+					pair.plan,
+				);
+			} else if (req.event === "plan_review_passed") {
+				if (!plan) throw new OrchestratePreconditionError("plan_required");
+				const pair = applyPlanReviewPassed(spec, plan, payload);
+				nextSpec = await applyBodyRevisionOnSave(
+					this.ctx.storage,
+					"spec",
+					slug,
+					spec,
+					pair.spec,
+				);
+				nextPlan = await applyBodyRevisionOnSave(
+					this.ctx.storage,
+					"plan",
+					plan.id,
+					plan,
+					pair.plan,
+				);
+			} else if (req.event === "phase_done") {
+				if (!plan) throw new OrchestratePreconditionError("plan_required");
+				const pair = applyPhaseDone(spec, plan, payload);
+				nextSpec = await applyBodyRevisionOnSave(
+					this.ctx.storage,
+					"spec",
+					slug,
+					spec,
+					pair.spec,
+				);
+				nextPlan = await applyBodyRevisionOnSave(
+					this.ctx.storage,
+					"plan",
+					plan.id,
+					plan,
+					pair.plan,
+				);
+			} else if (req.event === "implement_start") {
+				if (!plan) throw new OrchestratePreconditionError("plan_required");
+				const pair = applyImplementStart(spec, plan);
+				nextSpec = await applyBodyRevisionOnSave(
+					this.ctx.storage,
+					"spec",
+					slug,
+					spec,
+					pair.spec,
+				);
+				nextPlan = await applyBodyRevisionOnSave(
+					this.ctx.storage,
+					"plan",
+					plan.id,
+					plan,
+					pair.plan,
+				);
+			} else if (req.event === "ship") {
+				const pair = applyShip(spec, plan, payload);
+				nextSpec = await applyBodyRevisionOnSave(
+					this.ctx.storage,
+					"spec",
+					slug,
+					spec,
+					pair.spec,
+				);
+				if (pair.plan && plan) {
+					nextPlan = await applyBodyRevisionOnSave(
+						this.ctx.storage,
+						"plan",
+						pair.plan.id,
+						plan,
+						pair.plan,
+					);
+				}
+			} else {
+				return Response.json({ ok: false, error: "unknown event" }, { status: 400 });
+			}
+		} catch (err) {
+			if (err instanceof OrchestratePreconditionError) {
+				return Response.json(
+					{ ok: false, error: err.message, code: err.code },
+					{ status: 422 },
+				);
+			}
+			throw err;
+		}
+
+		await putSpecRecord(this.ctx.storage, nextSpec);
+		if (nextPlan) {
+			await this.ctx.storage.put(planKey(nextPlan.id), nextPlan);
+		}
+		if (req.event === "ship" && spec.lock) {
+			await removeLease(this.ctx.storage, { kind: "spec", slug });
+			await removeWorkspaceLease(this.ctx.storage, slug);
+		}
+		if (req.event === "ship" && nextPlan?.lock) {
+			await removeLease(this.ctx.storage, { kind: "plan", id: nextPlan.id });
+		}
+
+		const responseBody = {
+			ok: true,
+			event: req.event,
+			spec: toSpecSummary(nextSpec),
+			plan: nextPlan ? toPlanSummary(nextPlan) : null,
+			body_changed: nextSpec.body !== spec.body,
+		};
+
+		if (req.transition_id) {
+			await this.ctx.storage.put(
+				`${TRANSITION_CACHE_PREFIX}${req.transition_id}`,
+				JSON.stringify(responseBody),
+			);
+		}
+
+		return Response.json(responseBody, { headers: etagResponseHeaders(nextSpec.etag) });
+	}
+
 	private async acquireLock(slug: string, request: Request): Promise<Response> {
 		const stored = await this.ctx.storage.get<SpecRecord>(specKey(slug));
 		if (!stored) {
 			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
 		}
-		const record = normalizeSpecRecord(stored);
+		const record = await hydrateSpecRecord(this.ctx.storage, slug, stored);
 
 		let raw: unknown = {};
 		try {
@@ -440,7 +710,7 @@ export class Scribe extends DurableObject {
 			updated_at: now,
 			etag: now,
 		};
-		await this.ctx.storage.put(specKey(slug), updated);
+		await putSpecRecord(this.ctx.storage, updated);
 		await upsertLease(this.ctx.storage, { kind: "spec", slug }, updated.lock!);
 		return Response.json({ ok: true, spec: normalizeSpecRecord(updated) });
 	}
@@ -450,7 +720,7 @@ export class Scribe extends DurableObject {
 		if (!stored) {
 			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
 		}
-		const record = normalizeSpecRecord(stored);
+		const record = await hydrateSpecRecord(this.ctx.storage, slug, stored);
 
 		let agentId: string | undefined;
 		if (request.headers.get("content-type")?.includes("application/json")) {
@@ -477,7 +747,7 @@ export class Scribe extends DurableObject {
 			updated_at: now,
 			etag: now,
 		};
-		await this.ctx.storage.put(specKey(slug), updated);
+		await putSpecRecord(this.ctx.storage, updated);
 		await removeLease(this.ctx.storage, { kind: "spec", slug });
 		await removeWorkspaceLease(this.ctx.storage, slug);
 		return Response.json({ ok: true, spec: updated });
@@ -489,7 +759,7 @@ export class Scribe extends DurableObject {
 		for (const slug of slugs) {
 			const stored = await this.ctx.storage.get<SpecRecord>(specKey(slug));
 			if (!stored) continue;
-			const record = normalizeSpecRecord(stored);
+			const record = await hydrateSpecRecord(this.ctx.storage, slug, stored);
 			if (!includeDone && record.status === "done") continue;
 			specs.push(record);
 		}
@@ -619,6 +889,17 @@ export class Scribe extends DurableObject {
 		const created = !existing;
 		await this.ctx.storage.put(planKey(record.id), record);
 		await this.ctx.storage.put(PLAN_INDEX_KEY, [...ids].sort());
+
+		if (record.spec_slug) {
+			const specStored = await this.ctx.storage.get<SpecRecord>(specKey(record.spec_slug));
+			if (specStored) {
+				const spec = await hydrateSpecRecord(this.ctx.storage, record.spec_slug, specStored);
+				const linked = linkSpecPlanId(spec, record.id, record.spec_slug);
+				if (linked) {
+					await putSpecRecord(this.ctx.storage, linked);
+				}
+			}
+		}
 
 		return Response.json({ ok: true, plan: record }, { status: created ? 201 : 200 });
 	}
@@ -866,7 +1147,7 @@ export class Scribe extends DurableObject {
 			if (candidate.kind === "phase_bridge") {
 				const lockRes = this.acquireSpecLockInternal(holder, candidate.record, leaseSeconds);
 				if (lockRes.ok) {
-					await this.ctx.storage.put(specKey(candidate.record.slug), lockRes.spec);
+					await putSpecRecord(this.ctx.storage, lockRes.spec);
 					await upsertLease(
 						this.ctx.storage,
 						{ kind: "spec", slug: candidate.record.slug },
@@ -901,7 +1182,7 @@ export class Scribe extends DurableObject {
 
 			const lockRes = this.acquireSpecLockInternal(holder, candidate.record, leaseSeconds);
 			if (lockRes.ok) {
-				await this.ctx.storage.put(specKey(candidate.record.slug), lockRes.spec);
+				await putSpecRecord(this.ctx.storage, lockRes.spec);
 				await upsertLease(
 					this.ctx.storage,
 					{ kind: "spec", slug: candidate.record.slug },
@@ -1112,8 +1393,8 @@ export class Scribe extends DurableObject {
 		if (target.kind === "spec") {
 			const stored = await this.ctx.storage.get<SpecRecord>(specKey(target.slug));
 			if (stored?.lock) {
-				const record = normalizeSpecRecord(stored);
-				await this.ctx.storage.put(specKey(target.slug), {
+				const record = await hydrateSpecRecord(this.ctx.storage, target.slug, stored);
+				await putSpecRecord(this.ctx.storage, {
 					...record,
 					lock: null,
 					status: record.status === "in_progress" ? "ready" : record.status,

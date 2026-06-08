@@ -24,6 +24,7 @@ import {
   specSlugFromPath,
   specBoardStatus,
   specBoardStatusLabel,
+  specNeedsReviewAttention,
   specOrchestrationLabels,
   specReviewLoopActive,
   workUnitCount,
@@ -239,6 +240,7 @@ function renderCurrentBoard() {
 function specMatchesFilter(spec) {
   if (workFilter === "all") return true;
   if (workFilter === "locked") return !!spec.lock;
+  if (workFilter === "review") return specNeedsReviewAttention(spec);
   const status = specBoardStatus(spec);
   return status === "ready" || status === "in_progress";
 }
@@ -298,6 +300,7 @@ function syncBoardControls(total, { pane = boardPane } = {}) {
     workFilterSelect.innerHTML = `
       <option value="all">Show all work</option>
       <option value="locked">Locked only</option>
+      <option value="review">Needs review</option>
       <option value="active">Ready or in progress</option>
     `;
     workFilterSelect.addEventListener("change", () => {

@@ -117,15 +117,69 @@ export function statusLabel(status) {
   return map[status] || status;
 }
 
+/** Canonical spec documenting the 4a review workflow (board link target). */
+export const REVIEW_WORKFLOW_SPEC_SLUG = "ged-spec-review-gate";
+
+/** @param {string | null | undefined} value */
+export function normalizeReviewGate(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/\*\*/g, "")
+    .trim();
+}
+
+/** @param {object} spec */
+export function specReviewGateLabel(spec) {
+  const review = normalizeReviewGate(spec?.review_gate);
+  if (!review || review === "passed" || review.startsWith("passed") || review === "n/a") {
+    return null;
+  }
+  if (review === "pending" || review.startsWith("pending")) return "Pending";
+  if (review === "revise") return "Revise";
+  return String(spec.review_gate ?? "").trim() || null;
+}
+
+/** True when spec is blocked on intent review (list filter + detail callout). */
+export function specNeedsReviewAttention(spec) {
+  if (spec?.status === "blocked") return true;
+  const gate = specReviewGateLabel(spec);
+  return gate === "Pending" || gate === "Revise";
+}
+
+/**
+ * @param {string} [baseHref]
+ * @returns {string}
+ */
+export function specReviewInstructionsHref(baseHref = "") {
+  const root = String(baseHref).replace(/\/?$/, "/");
+  return `${root}#specs/${encodeURIComponent(REVIEW_WORKFLOW_SPEC_SLUG)}`;
+}
+
+/**
+ * @param {object} spec
+ * @returns {{ headline: string, detail: string, gate: string } | null}
+ */
+export function specReviewNoticeState(spec) {
+  if (!specNeedsReviewAttention(spec)) return null;
+  const gate = specReviewGateLabel(spec) || "Blocked";
+  return {
+    gate,
+    headline: gate === "Revise" ? "Revision requested" : "Review required",
+    detail:
+      gate === "Revise"
+        ? "Update the spec body, then re-submit for review before planning (phase 4c)."
+        : "Intent must pass review (phase 4a) before savePlan. Read the workflow spec for pass / revise steps.",
+  };
+}
+
 /** Board/detail status for specs (no build progress). */
 export function specBoardStatus(spec) {
   if (spec.status === "done") return "done";
   if (spec.status === "blocked") return "blocked";
-  const review = String(spec?.review_gate ?? "")
-    .toLowerCase()
-    .replace(/\*\*/g, "")
-    .trim();
-  if (review === "pending" || review.startsWith("pending")) return "blocked";
+  const review = normalizeReviewGate(spec?.review_gate);
+  if (review === "pending" || review.startsWith("pending") || review === "revise") {
+    return "blocked";
+  }
   return "ready";
 }
 
@@ -137,12 +191,9 @@ export function specBoardStatusLabel(spec) {
 export function specOrchestrationLabels(spec) {
   /** @type {string[]} */
   const labels = [];
-  const review = String(spec?.review_gate ?? "")
-    .toLowerCase()
-    .replace(/\*\*/g, "")
-    .trim();
-  if (review && review !== "passed" && !review.startsWith("passed")) {
-    labels.push(`Review · ${review === "pending" ? "Pending" : spec.review_gate}`);
+  const reviewLabel = specReviewGateLabel(spec);
+  if (reviewLabel) {
+    labels.push(`Review · ${reviewLabel}`);
   }
   const planReview = String(spec?.plan_review ?? "")
     .toLowerCase()

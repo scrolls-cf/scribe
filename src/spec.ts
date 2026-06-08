@@ -77,6 +77,30 @@ const SLUG_RE = /^[a-z][a-z0-9-]*$/;
 const ID_RE = /^[a-z][a-z0-9-]*$/;
 const STATUSES: SpecStatus[] = ["ready", "in_progress", "blocked", "done"];
 const PHASE_STATUSES: PhaseStatus[] = ["pending", "active", "done"];
+const GED_ORCHESTRATOR_SOURCE = "ged-orchestrator";
+
+/** Bootstrap / Shipped grandfather — skip greenfield blocked default. */
+export function isGrandfatheredOrchestratorRegister(raw: Record<string, unknown>): boolean {
+	return raw.grandfather_review_gate === true || raw.review_gate_pending === false;
+}
+
+function isExplicitStatus(raw: Record<string, unknown>): boolean {
+	return typeof raw.status === "string" && STATUSES.includes(raw.status as SpecStatus);
+}
+
+/** New greenfield ged-orchestrator POST /specs without explicit status → blocked. */
+export function shouldDefaultOrchestratorBlocked(
+	source: string | undefined,
+	existing: SpecRecord | null | undefined,
+	raw: Record<string, unknown>,
+): boolean {
+	return (
+		!existing &&
+		source === GED_ORCHESTRATOR_SOURCE &&
+		!isExplicitStatus(raw) &&
+		!isGrandfatheredOrchestratorRegister(raw)
+	);
+}
 
 export const SPEC_INDEX_KEY = "spec:index";
 
@@ -144,6 +168,65 @@ function orchestrationFromRecord(record: SpecRecord): SpecOrchestrationFields {
 		plan_review: record.plan_review ?? null,
 		worker_scope: record.worker_scope ?? [],
 	};
+}
+
+function pickOrchestrationString(
+	explicit: unknown,
+	stored: string | null | undefined,
+	footer: string | null | undefined,
+): string | null {
+	if (typeof explicit === "string" && explicit.trim()) return explicit.trim();
+	if (typeof stored === "string" && stored.trim()) return stored.trim();
+	return footer ?? null;
+}
+
+function pickWorkerScope(
+	explicit: unknown,
+	stored: string[] | undefined,
+	footer: string[],
+): string[] {
+	if (Array.isArray(explicit)) {
+		const scoped = explicit
+			.filter((item): item is string => typeof item === "string")
+			.map((item) => item.trim().toLowerCase())
+			.filter(Boolean);
+		if (scoped.length > 0) return scoped;
+	}
+	if (stored && stored.length > 0) return stored;
+	return footer;
+}
+
+/** Merge explicit input, DO metadata, and footer — explicit > stored > footer. */
+export function mergeOrchestrationFields(
+	raw: Record<string, unknown>,
+	existing: SpecRecord | null | undefined,
+	footer: ReturnType<typeof parseSpecFooterFields>,
+): SpecOrchestrationFields {
+	return {
+		terminal_skill: pickOrchestrationString(
+			raw.terminal_skill,
+			existing?.terminal_skill,
+			footer.terminal_skill,
+		),
+		design_lane: pickOrchestrationString(raw.design_lane, existing?.design_lane, footer.design_lane),
+		plan_id: pickOrchestrationString(raw.plan_id, existing?.plan_id, footer.plan_id),
+		review_gate: pickOrchestrationString(raw.review_gate, existing?.review_gate, footer.review_gate),
+		plan_review: pickOrchestrationString(raw.plan_review, existing?.plan_review, footer.plan_review),
+		worker_scope: pickWorkerScope(raw.worker_scope, existing?.worker_scope, footer.worker_scope),
+	};
+}
+
+/** Link plan_id on spec when savePlan carries spec_slug. Returns null when unchanged. */
+export function linkSpecPlanId(spec: SpecRecord, planId: string, specSlug: string): SpecRecord | null {
+	if (spec.slug !== specSlug) return null;
+	if (spec.plan_id === planId) return null;
+	const now = new Date().toISOString();
+	return normalizeSpecRecord({
+		...spec,
+		plan_id: planId,
+		updated_at: now,
+		etag: now,
+	});
 }
 
 export function toSpecSummary(record: SpecRecord): SpecSummary {
@@ -231,47 +314,89 @@ export function parseSaveSpecInput(
 	const phasesRaw = m.phases !== undefined ? parsePhases(m.phases) : existing?.phases ?? [];
 	if (phasesRaw === null) return { ok: false, error: "invalid phases" };
 
+	const source = typeof m.source === "string" ? m.source.trim() : existing?.source;
+	const applyOrchestratorBlockedDefault = shouldDefaultOrchestratorBlocked(source, existing, m);
+
 	let status: SpecStatus = existing?.status ?? "ready";
-	if (typeof m.status === "string" && STATUSES.includes(m.status as SpecStatus)) {
+	if (isExplicitStatus(m)) {
 		status = m.status as SpecStatus;
+	} else if (applyOrchestratorBlockedDefault) {
+		status = "blocked";
 	}
 
 	const now = new Date().toISOString();
 	const footer = parseSpecFooterFields(body);
+	const orchestration = mergeOrchestrationFields(m, existing, footer);
+	if (
+		!orchestration.review_gate &&
+		applyOrchestratorBlockedDefault &&
+		status === "blocked"
+	) {
+		orchestration.review_gate = "pending";
+	}
+
+	let active_phase = existing?.active_phase ?? null;
+	if (m.active_phase === null) {
+		active_phase = null;
+	} else if (typeof m.active_phase === "string" && m.active_phase.trim()) {
+		active_phase = m.active_phase.trim();
+	} else if (!active_phase && footer.active_phase) {
+		active_phase = footer.active_phase;
+	} else if (applyOrchestratorBlockedDefault && status === "blocked") {
+		active_phase = "Review";
+	}
+
 	return {
 		ok: true,
 		value: {
 			slug,
 			title,
 			body,
-			source: typeof m.source === "string" ? m.source.trim() : existing?.source,
+			source,
 			status,
 			phases: phasesRaw,
-			active_phase: existing?.active_phase ?? null,
+			active_phase,
 			lock: existing?.lock ?? null,
 			etag: now,
 			created_at: existing?.created_at ?? now,
 			updated_at: now,
-			terminal_skill: footer.terminal_skill,
-			design_lane: footer.design_lane,
-			plan_id: footer.plan_id,
-			review_gate: footer.review_gate,
-			plan_review: footer.plan_review,
-			worker_scope: footer.worker_scope,
+			...orchestration,
 			revisions_count: existing?.revisions_count ?? 0,
 			last_revision: existing?.last_revision ?? null,
 		},
 	};
 }
 
+export interface SpecPatchInput {
+	status?: SpecStatus;
+	phases?: SpecPhase[];
+	active_phase?: string | null;
+	etag?: string;
+	terminal_skill?: string | null;
+	design_lane?: string | null;
+	plan_id?: string | null;
+	review_gate?: string | null;
+	plan_review?: string | null;
+	worker_scope?: string[];
+}
+
+function parsePatchOrchestrationString(
+	field: string,
+	raw: unknown,
+): { ok: true; value: string | null } | { ok: false; error: string } {
+	if (raw === null) return { ok: true, value: null };
+	if (typeof raw === "string" && raw.trim()) return { ok: true, value: raw.trim() };
+	return { ok: false, error: `invalid ${field}` };
+}
+
 export function parsePatchSpecInput(
 	raw: unknown,
-): { ok: true; value: { status?: SpecStatus; phases?: SpecPhase[]; active_phase?: string | null; etag?: string } } | { ok: false; error: string } {
+): { ok: true; value: SpecPatchInput } | { ok: false; error: string } {
 	if (!raw || typeof raw !== "object") {
 		return { ok: false, error: "body must be a JSON object" };
 	}
 	const m = raw as Record<string, unknown>;
-	const out: { status?: SpecStatus; phases?: SpecPhase[]; active_phase?: string | null; etag?: string } = {};
+	const out: SpecPatchInput = {};
 
 	if (m.status !== undefined) {
 		if (typeof m.status !== "string" || !STATUSES.includes(m.status as SpecStatus)) {
@@ -296,12 +421,45 @@ export function parsePatchSpecInput(
 		}
 	}
 
+	for (const field of [
+		"terminal_skill",
+		"design_lane",
+		"plan_id",
+		"review_gate",
+		"plan_review",
+	] as const) {
+		if (m[field] === undefined) continue;
+		const parsed = parsePatchOrchestrationString(field, m[field]);
+		if (!parsed.ok) return parsed;
+		out[field] = parsed.value;
+	}
+
+	if (m.worker_scope !== undefined) {
+		if (!Array.isArray(m.worker_scope)) {
+			return { ok: false, error: "invalid worker_scope" };
+		}
+		out.worker_scope = m.worker_scope
+			.filter((item): item is string => typeof item === "string")
+			.map((item) => item.trim().toLowerCase())
+			.filter(Boolean);
+	}
+
 	if (typeof m.etag === "string" && m.etag.trim()) {
 		out.etag = m.etag.trim();
 	}
 
-	if (out.status === undefined && out.phases === undefined && out.active_phase === undefined) {
-		return { ok: false, error: "status, phases, or active_phase required" };
+	if (
+		out.status === undefined &&
+		out.phases === undefined &&
+		out.active_phase === undefined &&
+		out.terminal_skill === undefined &&
+		out.design_lane === undefined &&
+		out.plan_id === undefined &&
+		out.review_gate === undefined &&
+		out.plan_review === undefined &&
+		out.worker_scope === undefined
+	) {
+		return { ok: false, error: "at least one patch field required" };
 	}
 
 	return { ok: true, value: out };

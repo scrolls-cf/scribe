@@ -17,9 +17,13 @@ import {
   planProgressTracked,
   specBoardStatus,
   specBoardStatusLabel,
+  specNeedsReviewAttention,
   specOrchestrationLabel,
   specOrchestrationLabels,
+  specReviewGateLabel,
+  specReviewInstructionsHref,
   specReviewLoopActive,
+  specReviewNoticeState,
   planReviewLoopActive,
   revisionListMeta,
   revisionSummaryLabel,
@@ -246,8 +250,31 @@ describe("specBoardStatus", () => {
     );
   });
 
+  it("blocked when review_gate revise", () => {
+    assert.equal(specBoardStatus({ status: "ready", review_gate: "revise" }), "blocked");
+    assert.equal(specReviewGateLabel({ review_gate: "revise" }), "Revise");
+  });
+
   it("ready when review_gate passed", () => {
     assert.equal(specBoardStatus({ status: "ready", review_gate: "passed" }), "ready");
+  });
+});
+
+describe("spec review notice helpers", () => {
+  it("specNeedsReviewAttention for pending and blocked DO status", () => {
+    assert.equal(specNeedsReviewAttention({ status: "ready", review_gate: "pending" }), true);
+    assert.equal(specNeedsReviewAttention({ status: "blocked", review_gate: "passed" }), true);
+    assert.equal(specNeedsReviewAttention({ status: "ready", review_gate: "passed" }), false);
+  });
+
+  it("specReviewNoticeState and instructions href", () => {
+    const state = specReviewNoticeState({ status: "ready", review_gate: "pending" });
+    assert.equal(state?.gate, "Pending");
+    assert.match(state?.headline ?? "", /Review required/);
+    assert.match(
+      specReviewInstructionsHref("/scribe/"),
+      /#specs\/ged-spec-review-gate$/,
+    );
   });
 });
 
@@ -288,6 +315,9 @@ describe("specOrchestrationLabels", () => {
       plan_review: "required",
     });
     assert.deepEqual(labels, ["Review · Pending", "Plan review · Required"]);
+    assert.deepEqual(specOrchestrationLabels({ review_gate: "revise" }), [
+      "Review · Revise",
+    ]);
     assert.equal(
       specOrchestrationLabel({ review_gate: "pending", plan_review: "required" }),
       "Review · Pending · Plan review · Required",

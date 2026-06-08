@@ -8,7 +8,9 @@ import {
   specBoardStatus,
   specBoardStatusLabel,
   specOrchestrationLabels,
+  specReviewInstructionsHref,
   specReviewLoopActive,
+  specReviewNoticeState,
   workspaceEnvSnippet,
 } from "./api.js";
 import {
@@ -238,6 +240,31 @@ export function renderToolbar(toolbar, spec, { linkedPlans = [], workspace = nul
   }
 }
 
+export function renderSpecReviewNotice(root, spec) {
+  const section = root?.querySelector("#spec-review-notice");
+  const heading = root?.querySelector("#spec-review-notice-heading");
+  const bodyEl = root?.querySelector("#spec-review-notice-body");
+  const link = root?.querySelector("#spec-review-notice-link");
+  if (!section || !heading || !bodyEl) return;
+
+  const state = specReviewNoticeState(spec);
+  if (!state) {
+    section.hidden = true;
+    heading.textContent = "";
+    bodyEl.textContent = "";
+    return;
+  }
+
+  section.hidden = false;
+  heading.textContent = `${state.headline} · Review gate: ${state.gate}`;
+  bodyEl.textContent = state.detail;
+  if (link) {
+    link.href = specReviewInstructionsHref(
+      typeof window !== "undefined" ? window.location.pathname : "",
+    );
+  }
+}
+
 export function renderSpecDetail(root, spec, opts = {}) {
   if (!root || !spec) return;
 
@@ -280,6 +307,7 @@ export function renderSpecDetail(root, spec, opts = {}) {
   });
 
   applyBody();
+  renderSpecReviewNotice(root, spec);
 
   const doneNotice = root.querySelector("#spec-done-notice");
   if (doneNotice) {
