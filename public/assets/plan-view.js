@@ -3,7 +3,8 @@ import {
   lockSummary,
   planBoardStatus,
   planBoardStatusLabel,
-  planProgressLabel,
+  planProgressDisplayLabel,
+  planProgressTracked,
   planReviewLoopActive,
   revisionSummaryLabel,
   shouldShowDiffToggle,
@@ -113,7 +114,7 @@ export function renderPlanToolbar(toolbar, plan, { spec = null, diffUi = null, v
 
   const progress = document.createElement("span");
   progress.className = "spec-toolbar-meta";
-  progress.textContent = planProgressLabel(plan);
+  progress.textContent = planProgressDisplayLabel(plan);
   toolbar.append(progress);
 
   const updated = document.createElement("span");
@@ -213,7 +214,12 @@ export function renderPlanDetail(root, plan, opts = {}) {
     applyBody();
   };
 
-  renderPhaseSummary(phaseSummary, plan.phases);
+  if (planProgressTracked(plan)) {
+    renderPhaseSummary(phaseSummary, plan.phases);
+  } else if (phaseSummary) {
+    phaseSummary.hidden = true;
+    phaseSummary.replaceChildren();
+  }
   renderPlanToolbar(toolbar, plan, {
     spec: opts.spec ?? null,
     diffUi,

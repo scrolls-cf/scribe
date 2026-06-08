@@ -1,7 +1,8 @@
 import {
   formatAge,
+  hideSpecExecutionSections,
   lockSummary,
-  planProgressLabel,
+  planProgressTracked,
   revisionSummaryLabel,
   shouldShowDiffToggle,
   specBoardStatus,
@@ -45,8 +46,12 @@ export function renderSpecBodyHtml(spec, opts) {
     const summary = revisionSummaryLabel(spec.last_revision);
     return renderDiffPanelHtml(opts.diff, { summary: summary || null });
   }
-  return spec.body?.trim()
-    ? renderMarkdown(spec.body)
+  const linkedPlan = Boolean(opts.linkedPlan);
+  const body = linkedPlan
+    ? hideSpecExecutionSections(spec.body ?? "", { linkedPlan: true })
+    : spec.body;
+  return body?.trim()
+    ? renderMarkdown(body)
     : '<p class="prose-empty">This spec has no markdown body yet.</p>';
 }
 
@@ -172,17 +177,20 @@ export function renderToolbar(toolbar, spec, { linkedPlans = [], workspace = nul
 
   appendPlanLinks(toolbar, linkedPlans);
 
+  if (linkedPlans.length === 1 && !linkedPlans[0]._footerOnly) {
+    const callout = document.createElement("span");
+    callout.className = "spec-toolbar-meta spec-execution-callout";
+    const plan = linkedPlans[0];
+    callout.textContent = planProgressTracked(plan)
+      ? "Execution progress lives on the linked plan."
+      : "In progress · phases update after implement patchPlan.";
+    toolbar.append(callout);
+  }
+
   const updated = document.createElement("span");
   updated.className = "spec-toolbar-meta";
   updated.textContent = `Updated ${formatAge(spec.updated_at)}`;
   toolbar.append(updated);
-
-  if (linkedPlans.length === 1 && !linkedPlans[0]._footerOnly) {
-    const rollup = document.createElement("span");
-    rollup.className = "spec-toolbar-meta spec-toolbar-plan-rollup";
-    rollup.textContent = planProgressLabel(linkedPlans[0]);
-    toolbar.append(rollup);
-  }
 
   if (spec.lock) {
     const lock = document.createElement("span");
@@ -247,7 +255,13 @@ export function renderSpecDetail(root, spec, opts = {}) {
 
   const applyBody = () => {
     if (!bodyEl) return;
-    bodyEl.innerHTML = renderSpecBodyHtml(spec, { mode: viewMode, diff: opts.diff ?? null });
+    const linkedPlan =
+      (opts.linkedPlans?.length === 1 && !opts.linkedPlans[0]._footerOnly) || false;
+    bodyEl.innerHTML = renderSpecBodyHtml(spec, {
+      mode: viewMode,
+      diff: opts.diff ?? null,
+      linkedPlan,
+    });
     if (viewMode === "prose") hideDuplicateShellContent(bodyEl, spec);
     root.dataset.bodyViewMode = viewMode;
     syncBodyViewToggle(toolbar?.querySelector(".view-toggle"), viewMode);

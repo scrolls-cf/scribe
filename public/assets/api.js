@@ -267,6 +267,50 @@ export function planProgressLabel(plan) {
   return "No tasks yet";
 }
 
+/** True when orchestrator has marked at least one phase done or plan is terminal. */
+export function planProgressTracked(plan) {
+  if (!plan) return false;
+  if (plan.status === "done" || planPhasesComplete(plan)) return true;
+  return (plan.phases_done ?? 0) > 0;
+}
+
+/** Board/detail label — honest copy when in_progress but not yet tracked. */
+export function planProgressDisplayLabel(plan) {
+  if (!planProgressTracked(plan) && planBoardStatus(plan) === "in_progress") {
+    return "In progress · phases not tracked";
+  }
+  return planProgressLabel(plan);
+}
+
+const SPEC_EXECUTION_SECTIONS = new Set(["phases", "implementation status"]);
+
+/**
+ * Strip registration/execution sections from spec markdown when a plan owns execution.
+ * @param {string} body
+ * @param {{ linkedPlan?: boolean }} [opts]
+ */
+export function hideSpecExecutionSections(body, { linkedPlan = false } = {}) {
+  if (!linkedPlan || !body?.trim()) return body ?? "";
+
+  const lines = body.split("\n");
+  const out = [];
+  let skipping = false;
+
+  for (const line of lines) {
+    const h2 = line.match(/^## (.+)$/);
+    if (h2) {
+      const title = h2[1].replace(/`/g, "").trim().toLowerCase();
+      skipping = SPEC_EXECUTION_SECTIONS.has(title);
+      if (!skipping) out.push(line);
+      continue;
+    }
+    if (!skipping) out.push(line);
+  }
+
+  const trimmed = out.join("\n").trim();
+  return trimmed ? `${trimmed}\n` : "";
+}
+
 /**
  * Active board plans: not-done plans plus done plans still linked to an on-board spec.
  * @param {Array<{ status?: string, spec_slug?: string }>} allPlans

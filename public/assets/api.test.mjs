@@ -10,8 +10,11 @@ import {
   partitionCompletedWork,
   planBoardStatus,
   planBoardStatusLabel,
+  hideSpecExecutionSections,
   planPhasesComplete,
+  planProgressDisplayLabel,
   planProgressLabel,
+  planProgressTracked,
   specBoardStatus,
   specBoardStatusLabel,
   specOrchestrationLabel,
@@ -170,6 +173,67 @@ describe("planProgressLabel", () => {
       }),
       "Build · In progress",
     );
+  });
+});
+
+describe("planProgressTracked", () => {
+  it("false when in_progress with zero phases done", () => {
+    assert.equal(
+      planProgressTracked({
+        status: "in_progress",
+        phases_done: 0,
+        phases_total: 6,
+      }),
+      false,
+    );
+  });
+
+  it("true when at least one phase done", () => {
+    assert.equal(
+      planProgressTracked({
+        status: "in_progress",
+        phases_done: 1,
+        phases_total: 6,
+      }),
+      true,
+    );
+  });
+
+  it("planProgressDisplayLabel honest when untracked", () => {
+    assert.equal(
+      planProgressDisplayLabel({
+        status: "in_progress",
+        phases_done: 0,
+        phases_total: 6,
+      }),
+      "In progress · phases not tracked",
+    );
+  });
+});
+
+describe("hideSpecExecutionSections", () => {
+  const body = `## Problem
+x
+
+## Phases
+| 1 | a |
+
+## Implementation status
+| **Status** | Pending |
+
+## Goal
+y`;
+
+  it("keeps intent sections when linked plan", () => {
+    const out = hideSpecExecutionSections(body, { linkedPlan: true });
+    assert.match(out, /## Problem/);
+    assert.match(out, /## Goal/);
+    assert.doesNotMatch(out, /## Phases/);
+    assert.doesNotMatch(out, /## Implementation status/);
+  });
+
+  it("unchanged when no linked plan", () => {
+    assert.equal(hideSpecExecutionSections(body, { linkedPlan: false }), body);
   });
 });
 

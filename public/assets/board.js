@@ -15,7 +15,9 @@ import {
   planBoardStatus,
   planBoardStatusLabel,
   planLinkLabel,
+  planProgressDisplayLabel,
   planProgressLabel,
+  planProgressTracked,
   planReviewLoopActive,
   revisionListMeta,
   specLinkLabel,
@@ -259,7 +261,7 @@ function filterBoardData(specs, plans) {
   return { specs: filteredSpecs, plans: filteredPlans };
 }
 
-/** Hide ged-smoke-* artifacts from active board unless showSmoke is on. */
+/** Hide ged-smoke-* artifacts from the active board (always filtered). */
 function applySmokeFilter(specs, plans) {
   return {
     specs: specs.filter((s) => !isSmokeArtifact(s)),
@@ -585,7 +587,7 @@ function createSpecRow(spec) {
     : "";
   const rollup =
     linkedPlans.length === 1 && !linkedPlans[0]._footerOnly
-      ? `<span class="work-row-plan-rollup">${escape(planProgressLabel(linkedPlans[0]))}${linkedPlans[0].active_phase?.title ? ` · ${escape(linkedPlans[0].active_phase.title)}` : ""}</span>`
+      ? ""
       : linkedPlans.length > 1
         ? `<span class="work-row-plan-rollup">${linkedPlans.length} plans</span>`
         : "";
@@ -632,7 +634,9 @@ function createSpecRow(spec) {
 }
 
 function createImplRow(plan, { nested = false } = {}) {
-  const ratio = Math.round((plan.completion_ratio || 0) * 100);
+  const tracked = planProgressTracked(plan);
+  const ratio = tracked ? Math.round((plan.completion_ratio || 0) * 100) : 0;
+  const progressLabel = planProgressDisplayLabel(plan);
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "work-row work-row--impl";
@@ -643,9 +647,10 @@ function createImplRow(plan, { nested = false } = {}) {
   btn.setAttribute("aria-label", planLinkLabel(plan));
   btn.setAttribute("aria-pressed", plan.id === activePlanId ? "true" : "false");
 
-  const activePhase = plan.active_phase?.title
-    ? `<span class="work-row-phase">${escape(plan.active_phase.title)}</span>`
-    : "";
+  const activePhase =
+    tracked && plan.active_phase?.title
+      ? `<span class="work-row-phase">${escape(plan.active_phase.title)}</span>`
+      : "";
   const lockLine = plan.lock
     ? `<span class="lock-badge" title="${escape(lockSummary(plan.lock))}">${escape(lockTreeSummary(plan.lock))}</span>`
     : "";
@@ -667,11 +672,15 @@ function createImplRow(plan, { nested = false } = {}) {
     <span class="work-row-main">
       <span class="work-row-title">${escape(plan.title)}</span>
       ${activePhase}
-      <span class="work-row-progress">
-        <span class="plan-progress-label">${escape(planProgressLabel(plan))}</span>
-        <span class="plan-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${ratio}" aria-label="${escape(planProgressLabel(plan))}" style="--plan-progress: ${ratio / 100}">
+      <span class="work-row-progress${tracked ? "" : " work-row-progress--untracked"}">
+        <span class="plan-progress-label">${escape(progressLabel)}</span>
+        ${
+          tracked
+            ? `<span class="plan-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${ratio}" aria-label="${escape(progressLabel)}" style="--plan-progress: ${ratio / 100}">
           <span class="plan-progress-bar"></span>
-        </span>
+        </span>`
+            : ""
+        }
       </span>
     </span>
     <span class="work-row-meta work-row-meta--inline">

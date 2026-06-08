@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit",
     "dev": "wrangler dev --port 8791 --ip 127.0.0.1",
     "cf-typegen": "wrangler types",
-    "test": "node --experimental-strip-types --test src/**/*.test.ts public/assets/markdown.test.mjs public/assets/footer-plan.test.mjs public/assets/api.test.mjs public/assets/diff-lines.test.mjs public/assets/spec-view.test.mjs public/assets/plan-view.test.mjs public/assets/detail-poll.test.mjs"
+    "test": "node --experimental-strip-types --test src/**/*.test.ts public/assets/markdown.test.mjs public/assets/footer-plan.test.mjs public/assets/board.test.mjs public/assets/api.test.mjs public/assets/diff-lines.test.mjs public/assets/spec-view.test.mjs public/assets/plan-view.test.mjs public/assets/detail-poll.test.mjs"
   },
   "dependencies": {
     "hono": "^4.12.18"
