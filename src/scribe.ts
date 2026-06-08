@@ -294,18 +294,24 @@ export class Scribe extends DurableObject {
 		}
 
 		const now = new Date().toISOString();
+		const nextStatus = parsed.value.status ?? record.status;
 		const updated: SpecRecord = {
 			...record,
-			status: parsed.value.status ?? record.status,
+			status: nextStatus,
 			phases: parsed.value.phases ?? record.phases,
 			active_phase:
 				parsed.value.active_phase !== undefined
 					? parsed.value.active_phase
 					: record.active_phase,
+			lock: nextStatus === "done" ? null : record.lock,
 			updated_at: now,
 			etag: now,
 		};
 		await this.ctx.storage.put(specKey(slug), updated);
+		if (nextStatus === "done" && record.lock) {
+			await removeLease(this.ctx.storage, { kind: "spec", slug });
+			await removeWorkspaceLease(this.ctx.storage, slug);
+		}
 		return Response.json({ ok: true, spec: updated }, { headers: etagResponseHeaders(updated.etag) });
 	}
 
@@ -436,7 +442,22 @@ export class Scribe extends DurableObject {
 			return Response.json({ ok: false, error: "plan not found" }, { status: 404 });
 		}
 		const plan = normalizePlanRecord(stored);
-		return Response.json({ ok: true, plan }, { headers: etagResponseHeaders(plan.etag) });
+		const summary = toPlanSummary(plan);
+		return Response.json(
+			{
+				ok: true,
+				plan: {
+					...plan,
+					phases_done: summary.phases_done,
+					phases_total: summary.phases_total,
+					tasks_done: summary.tasks_done,
+					tasks_total: summary.tasks_total,
+					completion_ratio: summary.completion_ratio,
+					active_phase: summary.active_phase,
+				},
+			},
+			{ headers: etagResponseHeaders(plan.etag) },
+		);
 	}
 
 	private async savePlan(request: Request): Promise<Response> {
@@ -511,19 +532,27 @@ export class Scribe extends DurableObject {
 		const stampedPhases = stampPhaseCompletions(record.phases, nextPhases);
 
 		const now = new Date().toISOString();
+		const nextStatus = parsed.value.status ?? record.status;
 		const updated: PlanRecord = {
 			...record,
-			status: parsed.value.status ?? record.status,
+			status: nextStatus,
 			tasks: parsed.value.tasks ?? record.tasks,
 			phases: stampedPhases,
 			user_instructions: parsed.value.user_instructions ?? record.user_instructions,
 			deploy:
 				parsed.value.deploy !== undefined ? parsed.value.deploy : record.deploy,
+			lock: nextStatus === "done" ? null : record.lock,
 			updated_at: now,
 			etag: now,
 		};
 		const next_actions = planNextActionsAfterPatch(record, updated);
 		await this.ctx.storage.put(planKey(id), updated);
+		if (nextStatus === "done" && record.lock) {
+			await removeLease(this.ctx.storage, { kind: "plan", id });
+			if (record.spec_slug) {
+				await removeWorkspaceLease(this.ctx.storage, record.spec_slug);
+			}
+		}
 		return Response.json(
 			{ ok: true, plan: updated, next_actions },
 			{ headers: etagResponseHeaders(updated.etag) },
