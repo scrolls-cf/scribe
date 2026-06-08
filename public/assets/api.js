@@ -297,3 +297,69 @@ export function planLinkLabel(plan) {
   return parts.join(", ");
 }
 
+/** True when spec is in an active review/refactor loop (diff affordances). */
+export function specReviewLoopActive(spec) {
+  const review = String(spec?.review_gate ?? "")
+    .toLowerCase()
+    .replace(/\*\*/g, "")
+    .trim();
+  if (review && review !== "passed" && !review.startsWith("passed")) return true;
+  const activity = String(spec?.lock?.activity ?? "").toLowerCase();
+  return activity === "review" || activity === "refactor";
+}
+
+/**
+ * @param {{ status?: string, lock?: { activity?: string } }} plan
+ * @param {{ plan_review?: string | null } | null | undefined} spec
+ */
+export function planReviewLoopActive(plan, spec) {
+  const activity = String(plan?.lock?.activity ?? "").toLowerCase();
+  if (activity === "review" || activity === "refactor") return true;
+  if (plan?.status !== "blocked") return false;
+  const planReview = String(spec?.plan_review ?? "")
+    .toLowerCase()
+    .replace(/\*\*/g, "")
+    .trim();
+  return planReview === "required";
+}
+
+/** @param {{ lines_added?: number, lines_removed?: number, created_at?: string } | null | undefined} lastRevision */
+export function revisionSummaryLabel(lastRevision) {
+  if (!lastRevision) return "";
+  const parts = [];
+  if (lastRevision.lines_added != null || lastRevision.lines_removed != null) {
+    parts.push(`+${lastRevision.lines_added ?? 0} −${lastRevision.lines_removed ?? 0}`);
+  }
+  if (lastRevision.created_at) {
+    parts.push(formatAge(lastRevision.created_at));
+  }
+  return parts.join(" · ");
+}
+
+/** @param {{ revisions_count?: number, status?: string }} record */
+export function shouldShowDiffToggle(record, loopActive) {
+  const count = record?.revisions_count ?? 0;
+  if (count <= 0) return false;
+  if (loopActive) return true;
+  if (record.status === "done") return true;
+  return count > 0;
+}
+
+/** @param {string} slug @param {{ base?: string, head?: string }} [params] */
+export async function fetchSpecDiff(slug, params = {}) {
+  const qs = new URLSearchParams();
+  if (params.base) qs.set("base", params.base);
+  if (params.head) qs.set("head", params.head);
+  const q = qs.toString();
+  return apiFetch(`specs/${encodeURIComponent(slug)}/diff${q ? `?${q}` : ""}`);
+}
+
+/** @param {string} id @param {{ base?: string, head?: string }} [params] */
+export async function fetchPlanDiff(id, params = {}) {
+  const qs = new URLSearchParams();
+  if (params.base) qs.set("base", params.base);
+  if (params.head) qs.set("head", params.head);
+  const q = qs.toString();
+  return apiFetch(`plans/${encodeURIComponent(id)}/diff${q ? `?${q}` : ""}`);
+}
+

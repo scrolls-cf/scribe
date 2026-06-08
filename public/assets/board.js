@@ -1,5 +1,7 @@
 import {
   apiFetch,
+  fetchPlanDiff,
+  fetchSpecDiff,
   formatAge,
   lockSummary,
   lockTreeSummary,
@@ -746,9 +748,18 @@ async function openSpec(slug, { updateHash = true } = {}) {
     if (specDetailRoot) {
       specDetailRoot.hidden = false;
       const linkedPlans = resolveLinkedPlanRefs(slug, spec.body, allCachedPlans());
+      let diff = null;
+      if ((spec.revisions_count ?? 0) > 0) {
+        try {
+          diff = await fetchSpecDiff(slug);
+        } catch {
+          /* diff optional when no snapshots yet */
+        }
+      }
       renderSpecDetail(specDetailRoot, spec, {
         linkedPlans,
         workspace: cachedWorkspaces.get(spec.slug) ?? null,
+        diff,
       });
     }
     if (isCompletedPane() || spec.status === "done") {
@@ -793,12 +804,23 @@ async function openPlan(id, { updateHash = true } = {}) {
       clearDetailError();
       detailLoading.hidden = true;
     }
+    const specMeta =
+      getCurrentSpecs().find((s) => s.slug === plan.spec_slug) ||
+      cachedCompletedSpecs.find((s) => s.slug === plan.spec_slug) ||
+      null;
     if (planDetailRoot) {
       planDetailRoot.hidden = false;
-      renderPlanDetail(planDetailRoot, plan);
+      let diff = null;
+      if ((plan.revisions_count ?? 0) > 0) {
+        try {
+          diff = await fetchPlanDiff(id);
+        } catch {
+          /* diff optional */
+        }
+      }
+      renderPlanDetail(planDetailRoot, plan, { spec: specMeta, diff });
     }
 
-    const specMeta = getCurrentSpecs().find((s) => s.slug === plan.spec_slug);
     const specTitle = specMeta?.title || plan.spec_slug;
     const crumbs = [
       {

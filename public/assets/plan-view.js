@@ -4,8 +4,50 @@ import {
   planBoardStatus,
   planBoardStatusLabel,
   planProgressLabel,
+  planReviewLoopActive,
+  revisionSummaryLabel,
+  shouldShowDiffToggle,
 } from "./api.js";
+import {
+  mountBodyViewToggle,
+  renderDiffPanelHtml,
+  syncBodyViewToggle,
+} from "./detail-diff.js";
 import { renderMarkdown } from "./markdown.js";
+
+/** @typedef {"prose" | "changes"} BodyViewMode */
+
+/**
+ * @param {object} plan
+ * @param {object | null | undefined} spec
+ */
+export function planDiffUiState(plan, spec) {
+  const loopActive = planReviewLoopActive(plan, spec);
+  const count = plan.revisions_count ?? 0;
+  const showToggle = shouldShowDiffToggle(plan, loopActive);
+  const prefix = loopActive && plan.status === "blocked" ? "Plan review · " : "";
+  return {
+    loopActive,
+    showToggle,
+    iterationLabel: count > 0 ? `${prefix}Iteration · ${count}` : null,
+    showIterationChip: loopActive && count > 0,
+    revisionMeta: revisionSummaryLabel(plan.last_revision),
+  };
+}
+
+/**
+ * @param {object} plan
+ * @param {{ mode: BodyViewMode, diff?: object | null }} opts
+ */
+export function renderPlanBodyHtml(plan, opts) {
+  if (opts.mode === "changes" && opts.diff?.base_body != null && opts.diff?.head_body != null) {
+    const summary = revisionSummaryLabel(plan.last_revision);
+    return renderDiffPanelHtml(opts.diff, { summary: summary || null });
+  }
+  return plan.body?.trim()
+    ? renderMarkdown(plan.body)
+    : '<p class="prose-empty">This implementation has no markdown body yet.</p>';
+}
 
 function normalizeTitle(text) {
   return String(text).trim().toLowerCase().replace(/\s+/g, " ");
@@ -22,7 +64,35 @@ function hideDuplicateShellContent(bodyEl, plan) {
   hideIfTitleMatch(bodyEl.firstElementChild, title);
 }
 
-export function renderPlanToolbar(toolbar, plan) {
+/**
+ * @param {HTMLElement} toolbar
+ * @param {object} plan
+ * @param {{ diffUi: ReturnType<typeof planDiffUiState>, viewMode: BodyViewMode, onViewModeChange: (mode: BodyViewMode) => void }} diffOpts
+ */
+function appendDiffToolbar(toolbar, diffOpts) {
+  if (diffOpts.diffUi.showIterationChip && diffOpts.diffUi.iterationLabel) {
+    const chip = document.createElement("span");
+    chip.className = "status-pill status-pill--orch status-pill--iteration";
+    chip.dataset.orch = "iteration";
+    chip.textContent = diffOpts.diffUi.iterationLabel;
+    toolbar.append(chip);
+  }
+
+  mountBodyViewToggle(toolbar, {
+    visible: diffOpts.diffUi.showToggle,
+    mode: diffOpts.viewMode,
+    onChange: diffOpts.onViewModeChange,
+  });
+
+  if (diffOpts.diffUi.revisionMeta && diffOpts.diffUi.showToggle) {
+    const meta = document.createElement("span");
+    meta.className = "spec-toolbar-meta spec-toolbar-revision-meta";
+    meta.textContent = diffOpts.diffUi.revisionMeta;
+    toolbar.append(meta);
+  }
+}
+
+export function renderPlanToolbar(toolbar, plan, { spec = null, diffUi = null, viewMode = "prose", onViewModeChange = null } = {}) {
   if (!toolbar) return;
   toolbar.replaceChildren();
 
@@ -31,6 +101,15 @@ export function renderPlanToolbar(toolbar, plan) {
   status.dataset.status = planBoardStatus(plan);
   status.textContent = planBoardStatusLabel(plan);
   toolbar.append(status);
+
+  const ui = diffUi ?? planDiffUiState(plan, spec);
+  if (onViewModeChange) {
+    appendDiffToolbar(toolbar, {
+      diffUi: ui,
+      viewMode,
+      onViewModeChange,
+    });
+  }
 
   const progress = document.createElement("span");
   progress.className = "spec-toolbar-meta";
@@ -106,7 +185,7 @@ export function renderUserInstructions(root, plan) {
   bodyEl.innerHTML = renderMarkdown(text);
 }
 
-export function renderPlanDetail(root, plan) {
+export function renderPlanDetail(root, plan, opts = {}) {
   if (!root || !plan) return;
 
   const titleEl = root.querySelector("#plan-title");
@@ -117,16 +196,32 @@ export function renderPlanDetail(root, plan) {
 
   if (titleEl) titleEl.textContent = plan.title;
 
-  renderPhaseSummary(phaseSummary, plan.phases);
-  renderPlanToolbar(toolbar, plan);
-  renderUserInstructions(root, plan);
+  const diffUi = planDiffUiState(plan, opts.spec ?? null);
+  let viewMode = /** @type {BodyViewMode} */ (root.dataset.bodyViewMode || "prose");
+  if (viewMode === "changes" && !opts.diff) viewMode = "prose";
 
-  if (bodyEl) {
-    bodyEl.innerHTML = plan.body?.trim()
-      ? renderMarkdown(plan.body)
-      : '<p class="prose-empty">This implementation has no markdown body yet.</p>';
-    hideDuplicateShellContent(bodyEl, plan);
-  }
+  const applyBody = () => {
+    if (!bodyEl) return;
+    bodyEl.innerHTML = renderPlanBodyHtml(plan, { mode: viewMode, diff: opts.diff ?? null });
+    if (viewMode === "prose") hideDuplicateShellContent(bodyEl, plan);
+    root.dataset.bodyViewMode = viewMode;
+    syncBodyViewToggle(toolbar?.querySelector(".view-toggle"), viewMode);
+  };
+
+  const onViewModeChange = (mode) => {
+    viewMode = mode;
+    applyBody();
+  };
+
+  renderPhaseSummary(phaseSummary, plan.phases);
+  renderPlanToolbar(toolbar, plan, {
+    spec: opts.spec ?? null,
+    diffUi,
+    viewMode,
+    onViewModeChange: diffUi.showToggle ? onViewModeChange : null,
+  });
+  renderUserInstructions(root, plan);
+  applyBody();
 
   if (doneNotice) {
     doneNotice.hidden = plan.status !== "done";

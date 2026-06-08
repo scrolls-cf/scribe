@@ -2,12 +2,53 @@ import {
   formatAge,
   lockSummary,
   planProgressLabel,
+  revisionSummaryLabel,
+  shouldShowDiffToggle,
   specBoardStatus,
   specBoardStatusLabel,
   specOrchestrationLabels,
+  specReviewLoopActive,
   workspaceEnvSnippet,
 } from "./api.js";
+import {
+  mountBodyViewToggle,
+  renderDiffPanelHtml,
+  syncBodyViewToggle,
+} from "./detail-diff.js";
 import { renderMarkdown } from "./markdown.js";
+
+/** @typedef {"prose" | "changes"} BodyViewMode */
+
+/**
+ * @param {object} spec
+ * @returns {{ loopActive: boolean, showToggle: boolean, iterationLabel: string | null, showIterationChip: boolean, revisionMeta: string }}
+ */
+export function specDiffUiState(spec) {
+  const loopActive = specReviewLoopActive(spec);
+  const count = spec.revisions_count ?? 0;
+  const showToggle = shouldShowDiffToggle(spec, loopActive);
+  return {
+    loopActive,
+    showToggle,
+    iterationLabel: count > 0 ? `Iteration · ${count}` : null,
+    showIterationChip: loopActive && count > 0,
+    revisionMeta: revisionSummaryLabel(spec.last_revision),
+  };
+}
+
+/**
+ * @param {object} spec
+ * @param {{ mode: BodyViewMode, diff?: object | null }} opts
+ */
+export function renderSpecBodyHtml(spec, opts) {
+  if (opts.mode === "changes" && opts.diff?.base_body != null && opts.diff?.head_body != null) {
+    const summary = revisionSummaryLabel(spec.last_revision);
+    return renderDiffPanelHtml(opts.diff, { summary: summary || null });
+  }
+  return spec.body?.trim()
+    ? renderMarkdown(spec.body)
+    : '<p class="prose-empty">This spec has no markdown body yet.</p>';
+}
 
 function normalizeTitle(text) {
   return String(text).trim().toLowerCase().replace(/\s+/g, " ");
@@ -74,7 +115,35 @@ function appendPlanLinks(toolbar, linkedPlans) {
   toolbar.append(wrap);
 }
 
-export function renderToolbar(toolbar, spec, { linkedPlans = [], workspace = null } = {}) {
+/**
+ * @param {HTMLElement} toolbar
+ * @param {object} spec
+ * @param {{ diffUi: ReturnType<typeof specDiffUiState>, viewMode: BodyViewMode, onViewModeChange: (mode: BodyViewMode) => void }} diffOpts
+ */
+function appendDiffToolbar(toolbar, spec, diffOpts) {
+  if (diffOpts.diffUi.showIterationChip && diffOpts.diffUi.iterationLabel) {
+    const chip = document.createElement("span");
+    chip.className = "status-pill status-pill--orch status-pill--iteration";
+    chip.dataset.orch = "iteration";
+    chip.textContent = diffOpts.diffUi.iterationLabel;
+    toolbar.append(chip);
+  }
+
+  mountBodyViewToggle(toolbar, {
+    visible: diffOpts.diffUi.showToggle,
+    mode: diffOpts.viewMode,
+    onChange: diffOpts.onViewModeChange,
+  });
+
+  if (diffOpts.diffUi.revisionMeta && diffOpts.diffUi.showToggle) {
+    const meta = document.createElement("span");
+    meta.className = "spec-toolbar-meta spec-toolbar-revision-meta";
+    meta.textContent = diffOpts.diffUi.revisionMeta;
+    toolbar.append(meta);
+  }
+}
+
+export function renderToolbar(toolbar, spec, { linkedPlans = [], workspace = null, diffUi = null, viewMode = "prose", onViewModeChange = null } = {}) {
   if (!toolbar) return;
   toolbar.replaceChildren();
 
@@ -90,6 +159,15 @@ export function renderToolbar(toolbar, spec, { linkedPlans = [], workspace = nul
     chip.dataset.orch = label;
     chip.textContent = label;
     toolbar.append(chip);
+  }
+
+  const ui = diffUi ?? specDiffUiState(spec);
+  if (onViewModeChange) {
+    appendDiffToolbar(toolbar, spec, {
+      diffUi: ui,
+      viewMode,
+      onViewModeChange,
+    });
   }
 
   appendPlanLinks(toolbar, linkedPlans);
@@ -162,17 +240,35 @@ export function renderSpecDetail(root, spec, opts = {}) {
 
   if (titleEl) titleEl.textContent = spec.title;
   if (slugEl) slugEl.textContent = spec.slug;
-  if (bodyEl) {
-    bodyEl.innerHTML = spec.body?.trim()
-      ? renderMarkdown(spec.body)
-      : '<p class="prose-empty">This spec has no markdown body yet.</p>';
-    hideDuplicateShellContent(bodyEl, spec);
-  }
+
+  const diffUi = specDiffUiState(spec);
+  let viewMode = /** @type {BodyViewMode} */ (root.dataset.bodyViewMode || "prose");
+  if (viewMode === "changes" && !opts.diff) viewMode = "prose";
+
+  const applyBody = () => {
+    if (!bodyEl) return;
+    bodyEl.innerHTML = renderSpecBodyHtml(spec, { mode: viewMode, diff: opts.diff ?? null });
+    if (viewMode === "prose") hideDuplicateShellContent(bodyEl, spec);
+    root.dataset.bodyViewMode = viewMode;
+    syncBodyViewToggle(toolbar?.querySelector(".view-toggle"), viewMode);
+  };
+
+  const onViewModeChange = (mode) => {
+    viewMode = mode;
+    applyBody();
+  };
+
+  renderToolbar(toolbar, spec, {
+    ...opts,
+    diffUi,
+    viewMode,
+    onViewModeChange: diffUi.showToggle ? onViewModeChange : null,
+  });
+
+  applyBody();
 
   const doneNotice = root.querySelector("#spec-done-notice");
   if (doneNotice) {
     doneNotice.hidden = spec.status !== "done";
   }
-
-  renderToolbar(toolbar, spec, opts);
 }

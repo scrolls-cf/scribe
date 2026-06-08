@@ -14,6 +14,10 @@ import {
   specBoardStatusLabel,
   specOrchestrationLabel,
   specOrchestrationLabels,
+  specReviewLoopActive,
+  planReviewLoopActive,
+  revisionSummaryLabel,
+  shouldShowDiffToggle,
   workUnitCount,
 } from "./api.js";
 
@@ -213,5 +217,34 @@ describe("specOrchestrationLabels", () => {
       specOrchestrationLabels({ review_gate: "passed", plan_review: "n/a" }),
       [],
     );
+  });
+});
+
+describe("revision loop helpers", () => {
+  it("specReviewLoopActive when review pending", () => {
+    assert.equal(specReviewLoopActive({ review_gate: "pending" }), true);
+    assert.equal(specReviewLoopActive({ review_gate: "passed" }), false);
+  });
+
+  it("planReviewLoopActive when blocked and plan review required", () => {
+    assert.equal(
+      planReviewLoopActive({ status: "blocked" }, { plan_review: "required" }),
+      true,
+    );
+  });
+
+  it("shouldShowDiffToggle requires revisions", () => {
+    assert.equal(shouldShowDiffToggle({ revisions_count: 0 }, true), false);
+    assert.equal(shouldShowDiffToggle({ revisions_count: 2 }, false), true);
+  });
+
+  it("revisionSummaryLabel formats delta and age", () => {
+    const label = revisionSummaryLabel({
+      lines_added: 3,
+      lines_removed: 1,
+      created_at: new Date(Date.now() - 120_000).toISOString(),
+    });
+    assert.match(label, /\+3 −1/);
+    assert.match(label, /ago|just now/);
   });
 });
