@@ -7,9 +7,17 @@ export interface SpecPhase {
 	status: PhaseStatus;
 }
 
+export type HolderKind = "user" | "agent";
+
 export interface SpecLock {
+	/** User email/sub from Access, or agent id for service callers. */
 	agent_id: string;
 	acquired_at: string;
+	holder_kind?: HolderKind;
+	/** Wall-clock expiry (DO alarm lease). */
+	expires_at?: string;
+	/** TTL seconds used for this lock. */
+	lease_seconds?: number;
 }
 
 export interface SpecRecord {
@@ -19,7 +27,10 @@ export interface SpecRecord {
 	source?: string;
 	status: SpecStatus;
 	phases: SpecPhase[];
+	/** Orchestrator phase label (step 10 — DO-owned, mirrors footer Active phase). */
+	active_phase: string | null;
 	lock: SpecLock | null;
+	etag: string;
 	created_at: string;
 	updated_at: string;
 }
@@ -32,7 +43,9 @@ export interface SpecSummary {
 	updated_at: string;
 	phases_done: number;
 	phases_total: number;
+	active_phase: string | null;
 	lock: SpecLock | null;
+	etag: string;
 }
 
 const SLUG_RE = /^[a-z][a-z0-9-]*$/;
@@ -46,16 +59,20 @@ export function specKey(slug: string): string {
 	return `spec:${slug}`;
 }
 
-export function normalizeSpecRecord(raw: SpecRecord | (Omit<SpecRecord, "status" | "phases" | "lock"> & Partial<Pick<SpecRecord, "status" | "phases" | "lock">>)): SpecRecord {
+export function normalizeSpecRecord(raw: SpecRecord | (Omit<SpecRecord, "status" | "phases" | "lock" | "active_phase" | "etag"> & Partial<Pick<SpecRecord, "status" | "phases" | "lock" | "active_phase" | "etag">>)): SpecRecord {
 	const lock = raw.lock ?? null;
 	let status = raw.status ?? "ready";
 	if (status === "in_progress" && !lock) status = "ready";
+	const updated_at = raw.updated_at ?? raw.created_at ?? new Date().toISOString();
 	return {
 		...raw,
 		status,
 		phases: Array.isArray(raw.phases) ? raw.phases : [],
+		active_phase: typeof raw.active_phase === "string" ? raw.active_phase : raw.active_phase ?? null,
 		lock,
-		created_at: raw.created_at ?? raw.updated_at,
+		etag: raw.etag ?? updated_at,
+		created_at: raw.created_at ?? updated_at,
+		updated_at,
 	};
 }
 
@@ -79,7 +96,9 @@ export function toSpecSummary(record: SpecRecord): SpecSummary {
 		updated_at: normalized.updated_at,
 		phases_done,
 		phases_total: normalized.phases.length,
+		active_phase: normalized.active_phase,
 		lock: normalized.lock,
+		etag: normalized.etag,
 	};
 }
 
@@ -134,7 +153,9 @@ export function parseSaveSpecInput(
 			source: typeof m.source === "string" ? m.source.trim() : existing?.source,
 			status,
 			phases: phasesRaw,
+			active_phase: existing?.active_phase ?? null,
 			lock: existing?.lock ?? null,
+			etag: now,
 			created_at: existing?.created_at ?? now,
 			updated_at: now,
 		},
@@ -143,12 +164,12 @@ export function parseSaveSpecInput(
 
 export function parsePatchSpecInput(
 	raw: unknown,
-): { ok: true; value: { status?: SpecStatus; phases?: SpecPhase[] } } | { ok: false; error: string } {
+): { ok: true; value: { status?: SpecStatus; phases?: SpecPhase[]; active_phase?: string | null; etag?: string } } | { ok: false; error: string } {
 	if (!raw || typeof raw !== "object") {
 		return { ok: false, error: "body must be a JSON object" };
 	}
 	const m = raw as Record<string, unknown>;
-	const out: { status?: SpecStatus; phases?: SpecPhase[] } = {};
+	const out: { status?: SpecStatus; phases?: SpecPhase[]; active_phase?: string | null; etag?: string } = {};
 
 	if (m.status !== undefined) {
 		if (typeof m.status !== "string" || !STATUSES.includes(m.status as SpecStatus)) {
@@ -163,11 +184,32 @@ export function parsePatchSpecInput(
 		out.phases = phases;
 	}
 
-	if (out.status === undefined && out.phases === undefined) {
-		return { ok: false, error: "status or phases required" };
+	if (m.active_phase !== undefined) {
+		if (m.active_phase === null) {
+			out.active_phase = null;
+		} else if (typeof m.active_phase === "string" && m.active_phase.trim()) {
+			out.active_phase = m.active_phase.trim();
+		} else {
+			return { ok: false, error: "invalid active_phase" };
+		}
+	}
+
+	if (typeof m.etag === "string" && m.etag.trim()) {
+		out.etag = m.etag.trim();
+	}
+
+	if (out.status === undefined && out.phases === undefined && out.active_phase === undefined) {
+		return { ok: false, error: "status, phases, or active_phase required" };
 	}
 
 	return { ok: true, value: out };
+}
+
+/** Shipped spec with pending phase rows — server-side phase_bridge candidate. */
+export function isPhaseBridgeSpec(record: SpecRecord): boolean {
+	const normalized = normalizeSpecRecord(record);
+	if (normalized.status !== "done") return false;
+	return normalized.phases.some((p) => p.status === "pending" || p.status === "active");
 }
 
 export function parseLockInput(
@@ -183,4 +225,13 @@ export function parseLockInput(
 		return { ok: false, error: "agent_id is required" };
 	}
 	return { ok: true, value: { agent_id } };
+}
+
+/** Body agent_id is optional when gateway forwards Access identity headers. */
+export function parseOptionalLockBody(raw: unknown): string | undefined {
+	if (!raw || typeof raw !== "object") return undefined;
+	const agent_id = typeof (raw as { agent_id?: unknown }).agent_id === "string"
+		? (raw as { agent_id: string }).agent_id.trim()
+		: "";
+	return agent_id || undefined;
 }

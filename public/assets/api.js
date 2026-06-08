@@ -1,4 +1,5 @@
-const PROJECT = "default";
+/** Must match ged SCRIBE_PROJECT_ID (orchestration store). */
+const PROJECT = "ged";
 
 function routeAnchorIndex(path) {
   const specIdx = path.indexOf("/specs/");
@@ -107,7 +108,16 @@ export function specBoardStatusLabel(spec) {
 export function lockSummary(lock) {
   if (!lock) return "Open";
   const who = lock.holder_kind === "user" ? lock.agent_id : lock.agent_id;
-  return lock.holder_kind === "user" ? `Held by ${who}` : `Held by agent ${who}`;
+  const base = lock.holder_kind === "user" ? `Held by ${who}` : `Held by agent ${who}`;
+  if (!lock.expires_at) return base;
+  const ms = new Date(lock.expires_at).getTime() - Date.now();
+  if (ms <= 0) return `${base} · expired`;
+  const mins = Math.ceil(ms / 60_000);
+  if (mins < 60) return `${base} · expires ${mins}m`;
+  const hrs = Math.ceil(mins / 60);
+  if (hrs < 48) return `${base} · expires ${hrs}h`;
+  const days = Math.ceil(hrs / 24);
+  return `${base} · expires ${days}d`;
 }
 
 /** Short lock label for tree rows (full text lives in detail toolbar + aria-label). */

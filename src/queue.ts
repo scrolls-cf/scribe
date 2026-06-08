@@ -5,11 +5,12 @@ import {
 	type PlanPhase,
 	type PlanRecord,
 } from "./plan.ts";
-import { normalizeSpecRecord, type SpecRecord } from "./spec.ts";
+import { isPhaseBridgeSpec, normalizeSpecRecord, type SpecRecord } from "./spec.ts";
 
 export type QueueCandidate =
 	| { kind: "phase"; record: PlanRecord; phase: PlanPhase; completion_ratio: number }
-	| { kind: "spec"; record: SpecRecord; completion_ratio: number };
+	| { kind: "spec"; record: SpecRecord; completion_ratio: number }
+	| { kind: "phase_bridge"; record: SpecRecord; completion_ratio: number };
 
 export function isPickableSpec(record: SpecRecord): boolean {
 	if (record.lock) return false;
@@ -37,8 +38,12 @@ export function rankQueueCandidates(
 
 	for (const record of specs) {
 		const normalized = normalizeSpecRecord(record);
-		if (!isPickableSpec(normalized)) continue;
 		if (exclude.has(normalized.slug)) continue;
+		if (isPhaseBridgeSpec(normalized)) {
+			candidates.push({ kind: "phase_bridge", record: normalized, completion_ratio: 0 });
+			continue;
+		}
+		if (!isPickableSpec(normalized)) continue;
 		candidates.push({ kind: "spec", record: normalized, completion_ratio: 0 });
 	}
 
@@ -46,9 +51,13 @@ export function rankQueueCandidates(
 		if (b.completion_ratio !== a.completion_ratio) {
 			return b.completion_ratio - a.completion_ratio;
 		}
-		if (a.kind !== b.kind) {
-			return a.kind === "phase" ? -1 : 1;
-		}
+		const kindRank = (k: QueueCandidate["kind"]) => {
+			if (k === "phase") return 0;
+			if (k === "spec") return 1;
+			return 2;
+		};
+		const rankDiff = kindRank(a.kind) - kindRank(b.kind);
+		if (rankDiff !== 0) return rankDiff;
 		return a.record.updated_at.localeCompare(b.record.updated_at);
 	});
 
@@ -64,11 +73,11 @@ export function pickNextCandidate(
 	return ranked[0] ?? null;
 }
 
-export type TakeKind = "phase" | "plan" | "spec";
+export type TakeKind = "phase" | "plan" | "spec" | "phase_bridge";
 
 export function parseTakeInput(
 	raw: unknown,
-): { ok: true; value: { agent_id: string; exclude: string[]; kind?: TakeKind } } | { ok: false; error: string } {
+): { ok: true; value: { agent_id: string; exclude: string[]; kind?: TakeKind; lease_seconds?: number } } | { ok: false; error: string } {
 	if (!raw || typeof raw !== "object") {
 		return { ok: false, error: "body must be a JSON object" };
 	}
@@ -89,16 +98,25 @@ export function parseTakeInput(
 	}
 	let kind: TakeKind | undefined;
 	if (m.kind !== undefined) {
-		if (m.kind !== "plan" && m.kind !== "phase" && m.kind !== "spec") {
-			return { ok: false, error: "kind must be plan, phase, or spec" };
+		if (m.kind !== "plan" && m.kind !== "phase" && m.kind !== "spec" && m.kind !== "phase_bridge") {
+			return { ok: false, error: "kind must be plan, phase, spec, or phase_bridge" };
 		}
 		kind = m.kind;
 	}
-	return { ok: true, value: { agent_id, exclude, kind } };
+	let lease_seconds: number | undefined;
+	if (m.lease_seconds !== undefined) {
+		if (typeof m.lease_seconds !== "number" || !Number.isFinite(m.lease_seconds)) {
+			return { ok: false, error: "lease_seconds must be a number" };
+		}
+		lease_seconds = m.lease_seconds;
+	}
+	return { ok: true, value: { agent_id, exclude, kind, lease_seconds } };
 }
 
 export function matchesTakeKind(candidate: QueueCandidate, kind?: TakeKind): boolean {
 	if (!kind) return true;
 	if (kind === "spec") return candidate.kind === "spec";
+	if (kind === "phase_bridge") return candidate.kind === "phase_bridge";
+	if (kind === "plan") return candidate.kind === "phase";
 	return candidate.kind === "phase";
 }

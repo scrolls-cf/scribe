@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { etagConflict, etagResponseHeaders } from "./etag.ts";
 import {
 	ERROR_INDEX_KEY,
 	errorKey,
@@ -12,18 +13,33 @@ import {
 	serviceRegistryKey,
 	type ServiceRegistration,
 } from "./service-registry";
+import { resolveLockHolder, type LockHolder } from "./identity.ts";
+import {
+	dueLeaseEntries,
+	leaseStorageKey,
+	listLeaseEntries,
+	lockWithLease,
+	parseLeaseSeconds,
+	removeLease,
+	syncLeaseAlarm,
+	upsertLease,
+	type LeaseEntry,
+} from "./lease.ts";
 import {
 	parseLockInput,
 	parsePatchPlanInput,
 	parseSavePlanInput,
 	normalizePlanRecord,
 	nextPickablePhase,
+	planNextActionsAfterPatch,
 	PLAN_INDEX_KEY,
 	planKey,
+	stampPhaseCompletions,
 	toPlanSummary,
 	type PlanPhase,
 	type PlanRecord,
 } from "./plan.ts";
+import { parseOptionalLockBody } from "./spec.ts";
 import {
 	parseTakeInput,
 	rankQueueCandidates,
@@ -40,6 +56,15 @@ import {
 } from "./spec.ts";
 
 export class Scribe extends DurableObject {
+	async alarm(): Promise<void> {
+		try {
+			await this.processDueLeases();
+		} catch (err) {
+			console.error("lease alarm failed", err);
+			await this.ctx.storage.setAlarm(Date.now() + 5000);
+		}
+	}
+
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 
@@ -64,6 +89,7 @@ export class Scribe extends DurableObject {
 			const slug = decodeURIComponent(specPatchMatch[1]);
 			if (request.method === "GET") return this.getSpec(slug);
 			if (request.method === "PATCH") return this.patchSpec(slug, request);
+			if (request.method === "DELETE") return this.deleteSpec(slug);
 		}
 
 		if (url.pathname === "/plans") {
@@ -83,6 +109,7 @@ export class Scribe extends DurableObject {
 			const id = decodeURIComponent(planPatchMatch[1]);
 			if (request.method === "GET") return this.getPlan(id);
 			if (request.method === "PATCH") return this.patchPlan(id, request);
+			if (request.method === "DELETE") return this.deletePlan(id);
 		}
 
 		const planPhaseLockMatch = url.pathname.match(/^\/plans\/([^/]+)\/phases\/([^/]+)\/lock$/);
@@ -143,7 +170,8 @@ export class Scribe extends DurableObject {
 		if (!stored) {
 			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
 		}
-		return Response.json({ ok: true, spec: await this.loadSpecRecord(slug, stored) });
+		const spec = await this.loadSpecRecord(slug, stored);
+		return Response.json({ ok: true, spec }, { headers: etagResponseHeaders(spec.etag) });
 	}
 
 	private async loadSpecRecord(slug: string, stored: SpecRecord): Promise<SpecRecord> {
@@ -182,6 +210,20 @@ export class Scribe extends DurableObject {
 		return Response.json({ ok: true, spec: record }, { status: created ? 201 : 200 });
 	}
 
+	private async deleteSpec(slug: string): Promise<Response> {
+		const stored = await this.ctx.storage.get<SpecRecord>(specKey(slug));
+		if (!stored) {
+			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
+		}
+		await this.ctx.storage.delete(specKey(slug));
+		const slugs = (await this.ctx.storage.get<string[]>(SPEC_INDEX_KEY)) ?? [];
+		await this.ctx.storage.put(
+			SPEC_INDEX_KEY,
+			slugs.filter((s) => s !== slug),
+		);
+		return Response.json({ ok: true, deleted: slug });
+	}
+
 	private async patchSpec(slug: string, request: Request): Promise<Response> {
 		const stored = await this.ctx.storage.get<SpecRecord>(specKey(slug));
 		if (!stored) {
@@ -201,14 +243,27 @@ export class Scribe extends DurableObject {
 			return Response.json({ ok: false, error: parsed.error }, { status: 400 });
 		}
 
+		if (etagConflict(record.etag, request, parsed.value.etag)) {
+			return Response.json(
+				{ ok: false, error: "etag mismatch", etag: record.etag },
+				{ status: 409, headers: etagResponseHeaders(record.etag) },
+			);
+		}
+
+		const now = new Date().toISOString();
 		const updated: SpecRecord = {
 			...record,
 			status: parsed.value.status ?? record.status,
 			phases: parsed.value.phases ?? record.phases,
-			updated_at: new Date().toISOString(),
+			active_phase:
+				parsed.value.active_phase !== undefined
+					? parsed.value.active_phase
+					: record.active_phase,
+			updated_at: now,
+			etag: now,
 		};
 		await this.ctx.storage.put(specKey(slug), updated);
-		return Response.json({ ok: true, spec: updated });
+		return Response.json({ ok: true, spec: updated }, { headers: etagResponseHeaders(updated.etag) });
 	}
 
 	private async acquireLock(slug: string, request: Request): Promise<Response> {
@@ -218,32 +273,39 @@ export class Scribe extends DurableObject {
 		}
 		const record = normalizeSpecRecord(stored);
 
-		let raw: unknown;
+		let raw: unknown = {};
 		try {
 			raw = await request.json();
 		} catch {
-			return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 });
+			/* identity-only lock */
 		}
 
-		const parsed = parseLockInput(raw);
-		if (!parsed.ok) {
-			return Response.json({ ok: false, error: parsed.error }, { status: 400 });
+		const holder = resolveLockHolder(request, parseOptionalLockBody(raw));
+		if (!holder) {
+			return Response.json({ ok: false, error: "identity or agent_id required" }, { status: 400 });
 		}
 
-		if (record.lock && record.lock.agent_id !== parsed.value.agent_id) {
+		if (record.lock && record.lock.agent_id !== holder.holder_id) {
 			return Response.json(
 				{ ok: false, error: "lock held", lock: record.lock },
 				{ status: 409 },
 			);
 		}
 
+		const leaseParsed = this.resolveLeaseSeconds(raw, holder);
+		if (!leaseParsed.ok) {
+			return Response.json({ ok: false, error: leaseParsed.error }, { status: 400 });
+		}
+
 		const now = new Date().toISOString();
 		const updated: SpecRecord = {
 			...record,
-			lock: { agent_id: parsed.value.agent_id, acquired_at: now },
+			lock: lockWithLease(holder, now, leaseParsed.value),
 			updated_at: now,
+			etag: now,
 		};
 		await this.ctx.storage.put(specKey(slug), updated);
+		await upsertLease(this.ctx.storage, { kind: "spec", slug }, updated.lock!);
 		return Response.json({ ok: true, spec: normalizeSpecRecord(updated) });
 	}
 
@@ -272,12 +334,15 @@ export class Scribe extends DurableObject {
 			);
 		}
 
+		const now = new Date().toISOString();
 		const updated: SpecRecord = {
 			...record,
 			lock: null,
-			updated_at: new Date().toISOString(),
+			updated_at: now,
+			etag: now,
 		};
 		await this.ctx.storage.put(specKey(slug), updated);
+		await removeLease(this.ctx.storage, { kind: "spec", slug });
 		return Response.json({ ok: true, spec: updated });
 	}
 
@@ -322,7 +387,8 @@ export class Scribe extends DurableObject {
 		if (!stored) {
 			return Response.json({ ok: false, error: "plan not found" }, { status: 404 });
 		}
-		return Response.json({ ok: true, plan: normalizePlanRecord(stored) });
+		const plan = normalizePlanRecord(stored);
+		return Response.json({ ok: true, plan }, { headers: etagResponseHeaders(plan.etag) });
 	}
 
 	private async savePlan(request: Request): Promise<Response> {
@@ -353,6 +419,20 @@ export class Scribe extends DurableObject {
 		return Response.json({ ok: true, plan: record }, { status: created ? 201 : 200 });
 	}
 
+	private async deletePlan(id: string): Promise<Response> {
+		const stored = await this.ctx.storage.get<PlanRecord>(planKey(id));
+		if (!stored) {
+			return Response.json({ ok: false, error: "plan not found" }, { status: 404 });
+		}
+		await this.ctx.storage.delete(planKey(id));
+		const ids = (await this.ctx.storage.get<string[]>(PLAN_INDEX_KEY)) ?? [];
+		await this.ctx.storage.put(
+			PLAN_INDEX_KEY,
+			ids.filter((planId) => planId !== id),
+		);
+		return Response.json({ ok: true, deleted: id });
+	}
+
 	private async patchPlan(id: string, request: Request): Promise<Response> {
 		const stored = await this.ctx.storage.get<PlanRecord>(planKey(id));
 		if (!stored) {
@@ -372,15 +452,34 @@ export class Scribe extends DurableObject {
 			return Response.json({ ok: false, error: parsed.error }, { status: 400 });
 		}
 
+		if (etagConflict(record.etag, request, parsed.value.etag)) {
+			return Response.json(
+				{ ok: false, error: "etag mismatch", etag: record.etag },
+				{ status: 409, headers: etagResponseHeaders(record.etag) },
+			);
+		}
+
+		const nextPhases = parsed.value.phases ?? record.phases;
+		const stampedPhases = stampPhaseCompletions(record.phases, nextPhases);
+
+		const now = new Date().toISOString();
 		const updated: PlanRecord = {
 			...record,
 			status: parsed.value.status ?? record.status,
 			tasks: parsed.value.tasks ?? record.tasks,
-			phases: parsed.value.phases ?? record.phases,
-			updated_at: new Date().toISOString(),
+			phases: stampedPhases,
+			user_instructions: parsed.value.user_instructions ?? record.user_instructions,
+			deploy:
+				parsed.value.deploy !== undefined ? parsed.value.deploy : record.deploy,
+			updated_at: now,
+			etag: now,
 		};
+		const next_actions = planNextActionsAfterPatch(record, updated);
 		await this.ctx.storage.put(planKey(id), updated);
-		return Response.json({ ok: true, plan: updated });
+		return Response.json(
+			{ ok: true, plan: updated, next_actions },
+			{ headers: etagResponseHeaders(updated.etag) },
+		);
 	}
 
 	private async acquirePlanLock(id: string, request: Request): Promise<Response> {
@@ -390,33 +489,40 @@ export class Scribe extends DurableObject {
 		}
 		const record = normalizePlanRecord(stored);
 
-		let raw: unknown;
+		let raw: unknown = {};
 		try {
 			raw = await request.json();
 		} catch {
-			return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 });
+			/* identity-only lock */
 		}
 
-		const parsed = parseLockInput(raw);
-		if (!parsed.ok) {
-			return Response.json({ ok: false, error: parsed.error }, { status: 400 });
+		const holder = resolveLockHolder(request, parseOptionalLockBody(raw));
+		if (!holder) {
+			return Response.json({ ok: false, error: "identity or agent_id required" }, { status: 400 });
 		}
 
-		if (record.lock && record.lock.agent_id !== parsed.value.agent_id) {
+		if (record.lock && record.lock.agent_id !== holder.holder_id) {
 			return Response.json(
 				{ ok: false, error: "lock held", lock: record.lock },
 				{ status: 409 },
 			);
 		}
 
+		const leaseParsed = this.resolveLeaseSeconds(raw, holder);
+		if (!leaseParsed.ok) {
+			return Response.json({ ok: false, error: leaseParsed.error }, { status: 400 });
+		}
+
 		const now = new Date().toISOString();
+		const lock = lockWithLease(holder, now, leaseParsed.value);
 		const updated: PlanRecord = {
 			...record,
-			lock: { agent_id: parsed.value.agent_id, acquired_at: now },
+			lock,
 			status: record.status === "ready" ? "in_progress" : record.status,
 			updated_at: now,
 		};
 		await this.ctx.storage.put(planKey(id), updated);
+		await upsertLease(this.ctx.storage, { kind: "plan", id }, lock);
 		return Response.json({ ok: true, plan: updated });
 	}
 
@@ -451,6 +557,7 @@ export class Scribe extends DurableObject {
 			updated_at: new Date().toISOString(),
 		};
 		await this.ctx.storage.put(planKey(id), updated);
+		await removeLease(this.ctx.storage, { kind: "plan", id });
 		return Response.json({ ok: true, plan: updated });
 	}
 
@@ -467,7 +574,19 @@ export class Scribe extends DurableObject {
 			return Response.json({ ok: false, error: parsed.error }, { status: 400 });
 		}
 
-		const { agent_id, exclude, kind } = parsed.value;
+		const holder = resolveLockHolder(request, parsed.value.agent_id);
+		if (!holder) {
+			return Response.json({ ok: false, error: "identity or agent_id required" }, { status: 400 });
+		}
+		const leaseParsed =
+			parsed.value.lease_seconds !== undefined
+				? parseLeaseSeconds(parsed.value.lease_seconds, holder.holder_kind)
+				: parseLeaseSeconds(undefined, holder.holder_kind);
+		if (!leaseParsed.ok) {
+			return Response.json({ ok: false, error: leaseParsed.error }, { status: 400 });
+		}
+		const leaseSeconds = leaseParsed.value;
+		const { exclude, kind } = parsed.value;
 		const excludeSet = new Set(exclude);
 		const [plans, specs] = await Promise.all([
 			this.loadAllPlans(false),
@@ -479,12 +598,18 @@ export class Scribe extends DurableObject {
 		for (const candidate of ranked) {
 			if (candidate.kind === "phase") {
 				const lockRes = this.acquirePlanPhaseLockInternal(
-					agent_id,
+					holder,
 					candidate.record,
 					candidate.phase.id,
+					leaseSeconds,
 				);
 				if (lockRes.ok) {
 					await this.ctx.storage.put(planKey(candidate.record.id), lockRes.plan);
+					await upsertLease(
+						this.ctx.storage,
+						{ kind: "plan-phase", id: candidate.record.id, phaseId: candidate.phase.id },
+						lockRes.plan.phases.find((p) => p.id === candidate.phase.id)!.lock!,
+					);
 					const phase = lockRes.plan.phases.find((p) => p.id === candidate.phase.id)!;
 					return Response.json({
 						ok: true,
@@ -508,9 +633,42 @@ export class Scribe extends DurableObject {
 				continue;
 			}
 
-			const lockRes = this.acquireSpecLockInternal(agent_id, candidate.record);
+			if (candidate.kind === "phase_bridge") {
+				const lockRes = this.acquireSpecLockInternal(holder, candidate.record, leaseSeconds);
+				if (lockRes.ok) {
+					await this.ctx.storage.put(specKey(candidate.record.slug), lockRes.spec);
+					await upsertLease(
+						this.ctx.storage,
+						{ kind: "spec", slug: candidate.record.slug },
+						lockRes.spec.lock!,
+					);
+					const pending = candidate.record.phases.find(
+						(p) => p.status === "pending" || p.status === "active",
+					);
+					return Response.json({
+						ok: true,
+						kind: "phase_bridge",
+						completion_ratio: candidate.completion_ratio,
+						spec_slug: candidate.record.slug,
+						phase_id: pending?.id ?? null,
+						phase_name: pending?.title ?? candidate.record.active_phase,
+						spec: toSpecSummary(lockRes.spec),
+					});
+				}
+				if (lockRes.status !== 409) {
+					return Response.json({ ok: false, error: lockRes.error }, { status: lockRes.status });
+				}
+				continue;
+			}
+
+			const lockRes = this.acquireSpecLockInternal(holder, candidate.record, leaseSeconds);
 			if (lockRes.ok) {
 				await this.ctx.storage.put(specKey(candidate.record.slug), lockRes.spec);
+				await upsertLease(
+					this.ctx.storage,
+					{ kind: "spec", slug: candidate.record.slug },
+					lockRes.spec.lock!,
+				);
 				return Response.json({
 					ok: true,
 					kind: "spec",
@@ -527,25 +685,28 @@ export class Scribe extends DurableObject {
 	}
 
 	private acquireSpecLockInternal(
-		agentId: string,
+		holder: LockHolder,
 		record: SpecRecord,
+		leaseSeconds: number,
 	): { ok: true; spec: SpecRecord } | { ok: false; error: string; status: number } {
-		if (record.lock && record.lock.agent_id !== agentId) {
+		if (record.lock && record.lock.agent_id !== holder.holder_id) {
 			return { ok: false, error: "lock held", status: 409 };
 		}
 		const now = new Date().toISOString();
 		const updated: SpecRecord = {
 			...record,
-			lock: { agent_id: agentId, acquired_at: now },
+			lock: lockWithLease(holder, now, leaseSeconds),
 			updated_at: now,
+			etag: now,
 		};
 		return { ok: true, spec: updated };
 	}
 
 	private acquirePlanPhaseLockInternal(
-		agentId: string,
+		holder: LockHolder,
 		record: PlanRecord,
 		phaseId: string,
+		leaseSeconds: number,
 	): { ok: true; plan: PlanRecord } | { ok: false; error: string; status: number } {
 		const pickable = nextPickablePhase(record);
 		if (!pickable || pickable.id !== phaseId) {
@@ -553,15 +714,16 @@ export class Scribe extends DurableObject {
 		}
 		const phase = record.phases.find((p) => p.id === phaseId);
 		if (!phase) return { ok: false, error: "phase not found", status: 404 };
-		if (phase.lock && phase.lock.agent_id !== agentId) {
+		if (phase.lock && phase.lock.agent_id !== holder.holder_id) {
 			return { ok: false, error: "lock held", status: 409 };
 		}
 		const now = new Date().toISOString();
+		const phaseLock = lockWithLease(holder, now, leaseSeconds);
 		const phases = record.phases.map((p) =>
 			p.id === phaseId
 				? {
 						...p,
-						lock: { agent_id: agentId, acquired_at: now },
+						lock: phaseLock,
 						status: p.status === "pending" ? ("active" as PlanPhase["status"]) : p.status,
 					}
 				: p,
@@ -588,26 +750,33 @@ export class Scribe extends DurableObject {
 		}
 		const record = normalizePlanRecord(stored);
 
-		let raw: unknown;
+		let raw: unknown = {};
 		try {
 			raw = await request.json();
 		} catch {
-			return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 });
+			/* identity-only lock */
 		}
-		const parsed = parseLockInput(raw);
-		if (!parsed.ok) {
-			return Response.json({ ok: false, error: parsed.error }, { status: 400 });
+		const holder = resolveLockHolder(request, parseOptionalLockBody(raw));
+		if (!holder) {
+			return Response.json({ ok: false, error: "identity or agent_id required" }, { status: 400 });
 		}
 
-		const lockRes = this.acquirePlanPhaseLockInternal(
-			parsed.value.agent_id,
-			record,
-			phaseId,
-		);
+		const leaseParsed = this.resolveLeaseSeconds(raw, holder);
+		if (!leaseParsed.ok) {
+			return Response.json({ ok: false, error: leaseParsed.error }, { status: 400 });
+		}
+
+		const lockRes = this.acquirePlanPhaseLockInternal(holder, record, phaseId, leaseParsed.value);
 		if (!lockRes.ok) {
 			return Response.json({ ok: false, error: lockRes.error }, { status: lockRes.status });
 		}
 		await this.ctx.storage.put(planKey(id), lockRes.plan);
+		const phase = lockRes.plan.phases.find((p) => p.id === phaseId)!;
+		await upsertLease(
+			this.ctx.storage,
+			{ kind: "plan-phase", id, phaseId },
+			phase.lock!,
+		);
 		return Response.json({ ok: true, plan: lockRes.plan });
 	}
 
@@ -648,24 +817,93 @@ export class Scribe extends DurableObject {
 			updated_at: new Date().toISOString(),
 		};
 		await this.ctx.storage.put(planKey(id), updated);
+		await removeLease(this.ctx.storage, { kind: "plan-phase", id, phaseId });
 		return Response.json({ ok: true, plan: updated });
 	}
 
-	private acquirePlanLockInternal(
-		agentId: string,
-		record: PlanRecord,
-	): { ok: true; plan: PlanRecord } | { ok: false; error: string; status: number } {
-		if (record.lock && record.lock.agent_id !== agentId) {
-			return { ok: false, error: "lock held", status: 409 };
+	private resolveLeaseSeconds(
+		raw: unknown,
+		holder: LockHolder,
+	): { ok: true; value: number } | { ok: false; error: string } {
+		const override =
+			raw && typeof raw === "object"
+				? (raw as { lease_seconds?: unknown }).lease_seconds
+				: undefined;
+		return parseLeaseSeconds(override, holder.holder_kind);
+	}
+
+	private async processDueLeases(): Promise<void> {
+		const entries = await listLeaseEntries(this.ctx.storage);
+		const due = dueLeaseEntries(entries, Date.now());
+		for (const entry of due) {
+			await this.expireLease(entry);
 		}
+		await syncLeaseAlarm(this.ctx.storage);
+	}
+
+	private async expireLease(entry: LeaseEntry): Promise<void> {
 		const now = new Date().toISOString();
-		const updated: PlanRecord = {
-			...record,
-			lock: { agent_id: agentId, acquired_at: now },
-			status: record.status === "ready" ? "in_progress" : record.status,
-			updated_at: now,
-		};
-		return { ok: true, plan: updated };
+		const target = entry.target;
+
+		if (target.kind === "spec") {
+			const stored = await this.ctx.storage.get<SpecRecord>(specKey(target.slug));
+			if (stored?.lock) {
+				const record = normalizeSpecRecord(stored);
+				await this.ctx.storage.put(specKey(target.slug), {
+					...record,
+					lock: null,
+					status: record.status === "in_progress" ? "ready" : record.status,
+					updated_at: now,
+					etag: now,
+				});
+			}
+			console.log(
+				JSON.stringify({ event: "lease_expired", kind: "spec", slug: target.slug, holder_id: entry.holder_id }),
+			);
+		} else if (target.kind === "plan") {
+			const stored = await this.ctx.storage.get<PlanRecord>(planKey(target.id));
+			if (stored?.lock) {
+				const record = normalizePlanRecord(stored);
+				await this.ctx.storage.put(planKey(target.id), {
+					...record,
+					lock: null,
+					status: record.status === "in_progress" ? "ready" : record.status,
+					updated_at: now,
+				});
+			}
+			console.log(
+				JSON.stringify({ event: "lease_expired", kind: "plan", id: target.id, holder_id: entry.holder_id }),
+			);
+		} else {
+			const stored = await this.ctx.storage.get<PlanRecord>(planKey(target.id));
+			if (stored) {
+				const record = normalizePlanRecord(stored);
+				await this.ctx.storage.put(planKey(target.id), {
+					...record,
+					phases: record.phases.map((p) =>
+						p.id === target.phaseId
+							? {
+									...p,
+									lock: null,
+									status: p.status === "active" ? ("pending" as PlanPhase["status"]) : p.status,
+								}
+							: p,
+					),
+					updated_at: now,
+				});
+			}
+			console.log(
+				JSON.stringify({
+					event: "lease_expired",
+					kind: "plan-phase",
+					id: target.id,
+					phaseId: target.phaseId,
+					holder_id: entry.holder_id,
+				}),
+			);
+		}
+
+		await this.ctx.storage.delete(leaseStorageKey(target));
 	}
 
 	private async listErrors(): Promise<Response> {
