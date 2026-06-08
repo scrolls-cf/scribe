@@ -5,7 +5,12 @@ import {
 	type PlanPhase,
 	type PlanRecord,
 } from "./plan.ts";
-import { isPhaseBridgeSpec, normalizeSpecRecord, type SpecRecord } from "./spec.ts";
+import {
+	isPhaseBridgeSpec,
+	isSpecOrchestrationBlocked,
+	normalizeSpecRecord,
+	type SpecRecord,
+} from "./spec.ts";
 
 export type QueueCandidate =
 	| { kind: "phase"; record: PlanRecord; phase: PlanPhase; completion_ratio: number }
@@ -15,6 +20,7 @@ export type QueueCandidate =
 export function isPickableSpec(record: SpecRecord): boolean {
 	if (record.lock) return false;
 	if (record.status === "done" || record.status === "blocked") return false;
+	if (isSpecOrchestrationBlocked(record)) return false;
 	return true;
 }
 
@@ -24,8 +30,16 @@ export function rankQueueCandidates(
 	exclude: Set<string> = new Set(),
 ): QueueCandidate[] {
 	const candidates: QueueCandidate[] = [];
+	const specBySlug = new Map(
+		specs.map((spec) => {
+			const normalized = normalizeSpecRecord(spec);
+			return [normalized.slug, normalized] as const;
+		}),
+	);
 
 	for (const record of plans) {
+		const linkedSpec = specBySlug.get(record.spec_slug);
+		if (linkedSpec && isSpecOrchestrationBlocked(linkedSpec)) continue;
 		if (!isPickablePlan(record)) continue;
 		if (exclude.has(record.id)) continue;
 		const phase = nextPickablePhase(record);

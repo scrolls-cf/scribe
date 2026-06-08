@@ -1,3 +1,5 @@
+import { parseSpecFooterFields } from "./spec-footer.ts";
+
 export type SpecStatus = "ready" | "in_progress" | "blocked" | "done";
 export type PhaseStatus = "pending" | "active" | "done";
 
@@ -20,7 +22,16 @@ export interface SpecLock {
 	lease_seconds?: number;
 }
 
-export interface SpecRecord {
+export interface SpecOrchestrationFields {
+	terminal_skill?: string | null;
+	design_lane?: string | null;
+	plan_id?: string | null;
+	review_gate?: string | null;
+	plan_review?: string | null;
+	worker_scope?: string[];
+}
+
+export interface SpecRecord extends SpecOrchestrationFields {
 	slug: string;
 	title: string;
 	body: string;
@@ -35,7 +46,7 @@ export interface SpecRecord {
 	updated_at: string;
 }
 
-export interface SpecSummary {
+export interface SpecSummary extends SpecOrchestrationFields {
 	slug: string;
 	title: string;
 	source?: string;
@@ -48,7 +59,7 @@ export interface SpecSummary {
 	etag: string;
 }
 
-/** Orient projection — summary + phases + footer metadata parsed from body (view=summary). */
+/** Orient projection — summary + phases + orchestration metadata (view=summary). */
 export interface SpecOrientView extends SpecSummary {
 	phases: SpecPhase[];
 	terminal_skill: string | null;
@@ -56,6 +67,7 @@ export interface SpecOrientView extends SpecSummary {
 	plan_id: string | null;
 	review_gate: string | null;
 	plan_review: string | null;
+	worker_scope: string[];
 }
 
 const SLUG_RE = /^[a-z][a-z0-9-]*$/;
@@ -86,6 +98,29 @@ export function normalizeSpecRecord(raw: SpecRecord | (Omit<SpecRecord, "status"
 	};
 }
 
+/** Review gate passed — grandfather done/shipped and missing field. */
+export function isReviewGatePassed(record: SpecRecord): boolean {
+	const normalized = normalizeSpecRecord(record);
+	if (normalized.status === "done") return true;
+
+	let gate = normalized.review_gate;
+	if (!gate) {
+		gate = parseSpecFooterFields(normalized.body).review_gate;
+	}
+	if (!gate) return true;
+
+	const normalizedGate = gate.toLowerCase().replace(/\*\*/g, "").trim();
+	if (!normalizedGate) return true;
+	if (normalizedGate === "passed" || normalizedGate.startsWith("passed")) return true;
+	if (normalizedGate === "pending" || normalizedGate.startsWith("pending")) return false;
+	return false;
+}
+
+/** Route/take pickability — pending review blocks primary pick. */
+export function isSpecOrchestrationBlocked(record: SpecRecord): boolean {
+	return !isReviewGatePassed(record);
+}
+
 /** Specs have no build progress; board shows ready/blocked/done only. */
 export function specBoardStatus(record: SpecRecord): SpecStatus {
 	const normalized = normalizeSpecRecord(record);
@@ -93,6 +128,17 @@ export function specBoardStatus(record: SpecRecord): SpecStatus {
 		return normalized.status;
 	}
 	return "ready";
+}
+
+function orchestrationFromRecord(record: SpecRecord): SpecOrchestrationFields {
+	return {
+		terminal_skill: record.terminal_skill ?? null,
+		design_lane: record.design_lane ?? null,
+		plan_id: record.plan_id ?? null,
+		review_gate: record.review_gate ?? null,
+		plan_review: record.plan_review ?? null,
+		worker_scope: record.worker_scope ?? [],
+	};
 }
 
 export function toSpecSummary(record: SpecRecord): SpecSummary {
@@ -109,6 +155,7 @@ export function toSpecSummary(record: SpecRecord): SpecSummary {
 		active_phase: normalized.active_phase,
 		lock: normalized.lock,
 		etag: normalized.etag,
+		...orchestrationFromRecord(normalized),
 	};
 }
 
@@ -120,18 +167,24 @@ export function toSpecOrientView(
 		plan_id: string | null;
 		review_gate: string | null;
 		plan_review: string | null;
+		worker_scope: string[];
 	},
 ): SpecOrientView {
 	const normalized = normalizeSpecRecord(record);
 	const summary = toSpecSummary(normalized);
+	const stored = orchestrationFromRecord(normalized);
 	return {
 		...summary,
 		phases: normalized.phases,
-		terminal_skill: footerFields.terminal_skill,
-		design_lane: footerFields.design_lane,
-		plan_id: footerFields.plan_id,
-		review_gate: footerFields.review_gate,
-		plan_review: footerFields.plan_review,
+		terminal_skill: stored.terminal_skill ?? footerFields.terminal_skill,
+		design_lane: stored.design_lane ?? footerFields.design_lane,
+		plan_id: stored.plan_id ?? footerFields.plan_id,
+		review_gate: stored.review_gate ?? footerFields.review_gate,
+		plan_review: stored.plan_review ?? footerFields.plan_review,
+		worker_scope:
+			stored.worker_scope && stored.worker_scope.length > 0
+				? stored.worker_scope
+				: footerFields.worker_scope,
 	};
 }
 
@@ -177,6 +230,7 @@ export function parseSaveSpecInput(
 	}
 
 	const now = new Date().toISOString();
+	const footer = parseSpecFooterFields(body);
 	return {
 		ok: true,
 		value: {
@@ -191,6 +245,12 @@ export function parseSaveSpecInput(
 			etag: now,
 			created_at: existing?.created_at ?? now,
 			updated_at: now,
+			terminal_skill: footer.terminal_skill,
+			design_lane: footer.design_lane,
+			plan_id: footer.plan_id,
+			review_gate: footer.review_gate,
+			plan_review: footer.plan_review,
+			worker_scope: footer.worker_scope,
 		},
 	};
 }

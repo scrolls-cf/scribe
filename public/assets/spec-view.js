@@ -4,6 +4,7 @@ import {
   planProgressLabel,
   specBoardStatus,
   specBoardStatusLabel,
+  specOrchestrationLabels,
   workspaceEnvSnippet,
 } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
@@ -82,6 +83,14 @@ export function renderToolbar(toolbar, spec, { linkedPlans = [], workspace = nul
   status.dataset.status = specBoardStatus(spec);
   status.textContent = specBoardStatusLabel(spec);
   toolbar.append(status);
+
+  for (const label of specOrchestrationLabels(spec)) {
+    const chip = document.createElement("span");
+    chip.className = "status-pill status-pill--orch";
+    chip.dataset.orch = label;
+    chip.textContent = label;
+    toolbar.append(chip);
+  }
 
   appendPlanLinks(toolbar, linkedPlans);
 

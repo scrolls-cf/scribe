@@ -98,11 +98,41 @@ export function statusLabel(status) {
 export function specBoardStatus(spec) {
   if (spec.status === "done") return "done";
   if (spec.status === "blocked") return "blocked";
+  const review = String(spec?.review_gate ?? "")
+    .toLowerCase()
+    .replace(/\*\*/g, "")
+    .trim();
+  if (review === "pending" || review.startsWith("pending")) return "blocked";
   return "ready";
 }
 
 export function specBoardStatusLabel(spec) {
   return `Intent · ${statusLabel(specBoardStatus(spec))}`;
+}
+
+/** Orchestration chips for list/detail (review gate + plan review). */
+export function specOrchestrationLabels(spec) {
+  /** @type {string[]} */
+  const labels = [];
+  const review = String(spec?.review_gate ?? "")
+    .toLowerCase()
+    .replace(/\*\*/g, "")
+    .trim();
+  if (review && review !== "passed" && !review.startsWith("passed")) {
+    labels.push(`Review · ${review === "pending" ? "Pending" : spec.review_gate}`);
+  }
+  const planReview = String(spec?.plan_review ?? "")
+    .toLowerCase()
+    .replace(/\*\*/g, "")
+    .trim();
+  if (planReview === "required") {
+    labels.push("Plan review · Required");
+  }
+  return labels;
+}
+
+export function specOrchestrationLabel(spec) {
+  return specOrchestrationLabels(spec).join(" · ");
 }
 
 export function lockSummary(lock) {

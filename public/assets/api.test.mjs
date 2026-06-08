@@ -6,6 +6,10 @@ import {
   planBoardStatusLabel,
   planPhasesComplete,
   planProgressLabel,
+  specBoardStatus,
+  specBoardStatusLabel,
+  specOrchestrationLabel,
+  specOrchestrationLabels,
 } from "./api.js";
 
 describe("mergePlansForActiveSpecs", () => {
@@ -94,6 +98,41 @@ describe("planProgressLabel", () => {
         phases_total: 6,
       }),
       "Build · In progress",
+    );
+  });
+});
+
+describe("specBoardStatus", () => {
+  it("blocked when review_gate pending", () => {
+    assert.equal(specBoardStatus({ status: "ready", review_gate: "pending" }), "blocked");
+    assert.equal(
+      specBoardStatusLabel({ status: "ready", review_gate: "pending" }),
+      "Intent · Blocked",
+    );
+  });
+
+  it("ready when review_gate passed", () => {
+    assert.equal(specBoardStatus({ status: "ready", review_gate: "passed" }), "ready");
+  });
+});
+
+describe("specOrchestrationLabels", () => {
+  it("shows pending review and required plan review", () => {
+    const labels = specOrchestrationLabels({
+      review_gate: "pending",
+      plan_review: "required",
+    });
+    assert.deepEqual(labels, ["Review · Pending", "Plan review · Required"]);
+    assert.equal(
+      specOrchestrationLabel({ review_gate: "pending", plan_review: "required" }),
+      "Review · Pending · Plan review · Required",
+    );
+  });
+
+  it("hides passed review and n/a plan review", () => {
+    assert.deepEqual(
+      specOrchestrationLabels({ review_gate: "passed", plan_review: "n/a" }),
+      [],
     );
   });
 });

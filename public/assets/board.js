@@ -15,6 +15,7 @@ import {
   specSlugFromPath,
   specBoardStatus,
   specBoardStatusLabel,
+  specOrchestrationLabels,
 } from "./api.js";
 import {
   isSmokeArtifact,
@@ -357,6 +358,13 @@ function createSpecRow(spec) {
       : linkedPlans.length > 1
         ? `<span class="work-row-plan-rollup">${linkedPlans.length} plans</span>`
         : "";
+  const orchLabels = specOrchestrationLabels(spec);
+  const orchPills = orchLabels
+    .map(
+      (label) =>
+        `<span class="status-pill status-pill--orch" data-orch="${escape(label)}">${escape(label)}</span>`,
+    )
+    .join("");
 
   btn.innerHTML = `
     <span class="work-row-kind">Spec</span>
@@ -369,6 +377,7 @@ function createSpecRow(spec) {
       ${spec.lock ? `<span class="lock-badge" data-held="true" title="${escape(lockSummary(spec.lock))}">${escape(lockText)}</span>` : ""}
       ${workspaceBadge}
       <span class="status-pill status-pill--intent" data-status="${escape(specBoardStatus(spec))}">${escape(specBoardStatusLabel(spec))}</span>
+      ${orchPills}
       <span class="work-row-age sr-only">Updated ${formatAge(spec.updated_at)}</span>
     </span>
   `;

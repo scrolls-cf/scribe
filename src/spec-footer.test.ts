@@ -20,6 +20,18 @@ describe("parseSpecFooterFields", () => {
 		assert.equal(fields.plan_id, "ged-a-plan");
 		assert.equal(fields.review_gate, "passed");
 		assert.equal(fields.plan_review, "required");
+		assert.deepEqual(fields.worker_scope, []);
+	});
+
+	it("accepts Plan: field and worker scope", () => {
+		const body = `## Implementation status
+
+| **Plan:** | ged-a-plan |
+| **Worker scope** | scribe, scrollsmatrix |
+`;
+		const fields = parseSpecFooterFields(body);
+		assert.equal(fields.plan_id, "ged-a-plan");
+		assert.deepEqual(fields.worker_scope, ["scribe", "scrollsmatrix"]);
 	});
 });
 
