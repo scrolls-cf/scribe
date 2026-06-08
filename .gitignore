@@ -3,7 +3,12 @@ node_modules/
 worker-configuration.d.ts
 dist/
 
+.graphify/
+.cursor/
+
 # Impeccable session artifacts (keep .impeccable/live/config.json tracked)
+.impeccable/craft/
+.impeccable/deployed/
 .impeccable/critique/
 .impeccable/*.png
 .impeccable/hook.cache.json
