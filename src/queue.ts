@@ -75,9 +75,19 @@ export function pickNextCandidate(
 
 export type TakeKind = "phase" | "plan" | "spec" | "phase_bridge";
 
+export type TakeInput = {
+	agent_id: string;
+	exclude: string[];
+	kind?: TakeKind;
+	lease_seconds?: number;
+	platform_root?: string;
+	platform_id: "ged";
+	workspace_isolation: boolean;
+};
+
 export function parseTakeInput(
 	raw: unknown,
-): { ok: true; value: { agent_id: string; exclude: string[]; kind?: TakeKind; lease_seconds?: number } } | { ok: false; error: string } {
+): { ok: true; value: TakeInput } | { ok: false; error: string } {
 	if (!raw || typeof raw !== "object") {
 		return { ok: false, error: "body must be a JSON object" };
 	}
@@ -110,7 +120,28 @@ export function parseTakeInput(
 		}
 		lease_seconds = m.lease_seconds;
 	}
-	return { ok: true, value: { agent_id, exclude, kind, lease_seconds } };
+	const workspace_isolation = m.workspace_isolation === false ? false : m.workspace_isolation !== undefined ? m.workspace_isolation === true : true;
+	let platform_root: string | undefined;
+	if (m.platform_root !== undefined) {
+		if (typeof m.platform_root !== "string" || !m.platform_root.trim()) {
+			return { ok: false, error: "platform_root must be a non-empty string" };
+		}
+		platform_root = m.platform_root.trim();
+	}
+	let platform_id: "ged" = "ged";
+	if (m.platform_id !== undefined) {
+		if (m.platform_id !== "ged") {
+			return { ok: false, error: "platform_id must be ged" };
+		}
+		platform_id = "ged";
+	}
+	if (workspace_isolation && !platform_root) {
+		return { ok: false, error: "platform_root is required when workspace_isolation is enabled" };
+	}
+	return {
+		ok: true,
+		value: { agent_id, exclude, kind, lease_seconds, platform_root, platform_id, workspace_isolation },
+	};
 }
 
 export function matchesTakeKind(candidate: QueueCandidate, kind?: TakeKind): boolean {

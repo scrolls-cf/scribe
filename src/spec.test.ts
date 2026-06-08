@@ -50,7 +50,9 @@ describe("specBoardStatus", () => {
 			body: "# Spec",
 			status: "in_progress",
 			phases: [],
+			active_phase: null,
 			lock: null,
+			etag: "2026-06-06T00:00:00.000Z",
 			created_at: "2026-06-06T00:00:00.000Z",
 			updated_at: "2026-06-06T00:00:00.000Z",
 		});

@@ -46,11 +46,23 @@ import {
 	matchesTakeKind,
 } from "./queue.ts";
 import {
+	computeWorkspaceManifest,
+	getWorkspaceLease,
+	listWorkspaceLeases,
+	removeWorkspaceLease,
+	toWorkspaceSummary,
+	upsertWorkspaceLease,
+	validatePlatformRoot,
+	type WorkspaceLease,
+} from "./workspace.ts";
+import { parseSpecFooterFields } from "./spec-footer.ts";
+import {
 	parsePatchSpecInput,
 	normalizeSpecRecord,
 	parseSaveSpecInput,
 	SPEC_INDEX_KEY,
 	specKey,
+	toSpecOrientView,
 	toSpecSummary,
 	type SpecRecord,
 } from "./spec.ts";
@@ -84,10 +96,15 @@ export class Scribe extends DurableObject {
 			if (request.method === "DELETE") return this.releaseLock(slug, request);
 		}
 
+		const specBodyMatch = url.pathname.match(/^\/specs\/([^/]+)\/body$/);
+		if (specBodyMatch && request.method === "GET") {
+			return this.getSpecBody(decodeURIComponent(specBodyMatch[1]));
+		}
+
 		const specPatchMatch = url.pathname.match(/^\/specs\/([^/]+)$/);
 		if (specPatchMatch) {
 			const slug = decodeURIComponent(specPatchMatch[1]);
-			if (request.method === "GET") return this.getSpec(slug);
+			if (request.method === "GET") return this.getSpec(slug, url);
 			if (request.method === "PATCH") return this.patchSpec(slug, request);
 			if (request.method === "DELETE") return this.deleteSpec(slug);
 		}
@@ -122,6 +139,15 @@ export class Scribe extends DurableObject {
 
 		if (url.pathname === "/queue/take" && request.method === "POST") {
 			return this.takeFromQueue(request);
+		}
+
+		if (url.pathname === "/workspaces" && request.method === "GET") {
+			return this.listWorkspaces(url);
+		}
+
+		const workspaceMatch = url.pathname.match(/^\/workspaces\/([^/]+)$/);
+		if (workspaceMatch && request.method === "DELETE") {
+			return this.deleteWorkspace(decodeURIComponent(workspaceMatch[1]), request);
 		}
 
 		if (url.pathname === "/errors") {
@@ -165,13 +191,30 @@ export class Scribe extends DurableObject {
 		});
 	}
 
-	private async getSpec(slug: string): Promise<Response> {
+	private async getSpec(slug: string, url: URL): Promise<Response> {
 		const stored = await this.ctx.storage.get<SpecRecord>(specKey(slug));
 		if (!stored) {
 			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
 		}
 		const spec = await this.loadSpecRecord(slug, stored);
+		const view = url.searchParams.get("view") ?? "full";
+		if (view === "summary") {
+			const orient = toSpecOrientView(spec, parseSpecFooterFields(spec.body));
+			return Response.json({ ok: true, spec: orient }, { headers: etagResponseHeaders(spec.etag) });
+		}
 		return Response.json({ ok: true, spec }, { headers: etagResponseHeaders(spec.etag) });
+	}
+
+	private async getSpecBody(slug: string): Promise<Response> {
+		const stored = await this.ctx.storage.get<SpecRecord>(specKey(slug));
+		if (!stored) {
+			return Response.json({ ok: false, error: "spec not found" }, { status: 404 });
+		}
+		const spec = await this.loadSpecRecord(slug, stored);
+		return Response.json(
+			{ ok: true, slug: spec.slug, body: spec.body, etag: spec.etag },
+			{ headers: etagResponseHeaders(spec.etag) },
+		);
 	}
 
 	private async loadSpecRecord(slug: string, stored: SpecRecord): Promise<SpecRecord> {
@@ -343,6 +386,7 @@ export class Scribe extends DurableObject {
 		};
 		await this.ctx.storage.put(specKey(slug), updated);
 		await removeLease(this.ctx.storage, { kind: "spec", slug });
+		await removeWorkspaceLease(this.ctx.storage, slug);
 		return Response.json({ ok: true, spec: updated });
 	}
 
@@ -374,7 +418,11 @@ export class Scribe extends DurableObject {
 
 	private async listPlans(url: URL): Promise<Response> {
 		const includeDone = url.searchParams.get("all") === "true";
-		const plans = await this.loadAllPlans(includeDone);
+		const specSlugFilter = url.searchParams.get("spec_slug")?.trim() ?? "";
+		let plans = await this.loadAllPlans(includeDone);
+		if (specSlugFilter) {
+			plans = plans.filter((p) => p.spec_slug === specSlugFilter);
+		}
 		plans.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 		return Response.json({
 			ok: true,
@@ -558,6 +606,9 @@ export class Scribe extends DurableObject {
 		};
 		await this.ctx.storage.put(planKey(id), updated);
 		await removeLease(this.ctx.storage, { kind: "plan", id });
+		if (record.spec_slug) {
+			await removeWorkspaceLease(this.ctx.storage, record.spec_slug);
+		}
 		return Response.json({ ok: true, plan: updated });
 	}
 
@@ -586,7 +637,13 @@ export class Scribe extends DurableObject {
 			return Response.json({ ok: false, error: leaseParsed.error }, { status: 400 });
 		}
 		const leaseSeconds = leaseParsed.value;
-		const { exclude, kind } = parsed.value;
+		const { exclude, kind, platform_root, workspace_isolation } = parsed.value;
+		if (workspace_isolation) {
+			const rootParsed = validatePlatformRoot(platform_root);
+			if (!rootParsed.ok) {
+				return Response.json({ ok: false, error: rootParsed.error }, { status: 400 });
+			}
+		}
 		const excludeSet = new Set(exclude);
 		const [plans, specs] = await Promise.all([
 			this.loadAllPlans(false),
@@ -611,6 +668,13 @@ export class Scribe extends DurableObject {
 						lockRes.plan.phases.find((p) => p.id === candidate.phase.id)!.lock!,
 					);
 					const phase = lockRes.plan.phases.find((p) => p.id === candidate.phase.id)!;
+					const workspace = await this.bindWorkspaceOnTake(
+						lockRes.plan.spec_slug,
+						"plan",
+						phase.lock!,
+						platform_root,
+						workspace_isolation,
+					);
 					return Response.json({
 						ok: true,
 						kind: "phase",
@@ -625,6 +689,7 @@ export class Scribe extends DurableObject {
 							lock: phase.lock,
 						},
 						plan: toPlanSummary(lockRes.plan),
+						...(workspace ? { workspace } : {}),
 					});
 				}
 				if (lockRes.status !== 409) {
@@ -645,6 +710,13 @@ export class Scribe extends DurableObject {
 					const pending = candidate.record.phases.find(
 						(p) => p.status === "pending" || p.status === "active",
 					);
+					const workspace = await this.bindWorkspaceOnTake(
+						candidate.record.slug,
+						"spec",
+						lockRes.spec.lock!,
+						platform_root,
+						workspace_isolation,
+					);
 					return Response.json({
 						ok: true,
 						kind: "phase_bridge",
@@ -653,6 +725,7 @@ export class Scribe extends DurableObject {
 						phase_id: pending?.id ?? null,
 						phase_name: pending?.title ?? candidate.record.active_phase,
 						spec: toSpecSummary(lockRes.spec),
+						...(workspace ? { workspace } : {}),
 					});
 				}
 				if (lockRes.status !== 409) {
@@ -669,11 +742,20 @@ export class Scribe extends DurableObject {
 					{ kind: "spec", slug: candidate.record.slug },
 					lockRes.spec.lock!,
 				);
+				const workspace = await this.bindWorkspaceOnTake(
+					candidate.record.slug,
+					"spec",
+					lockRes.spec.lock!,
+					platform_root,
+					workspace_isolation,
+				);
 				return Response.json({
 					ok: true,
 					kind: "spec",
 					completion_ratio: candidate.completion_ratio,
+					spec_slug: candidate.record.slug,
 					spec: toSpecSummary(lockRes.spec),
+					...(workspace ? { workspace } : {}),
 				});
 			}
 			if (lockRes.status !== 409) {
@@ -818,6 +900,9 @@ export class Scribe extends DurableObject {
 		};
 		await this.ctx.storage.put(planKey(id), updated);
 		await removeLease(this.ctx.storage, { kind: "plan-phase", id, phaseId });
+		if (record.spec_slug) {
+			await removeWorkspaceLease(this.ctx.storage, record.spec_slug);
+		}
 		return Response.json({ ok: true, plan: updated });
 	}
 
@@ -904,6 +989,73 @@ export class Scribe extends DurableObject {
 		}
 
 		await this.ctx.storage.delete(leaseStorageKey(target));
+
+		const specSlug = await this.specSlugForLeaseTarget(target);
+		if (specSlug) {
+			await removeWorkspaceLease(this.ctx.storage, specSlug);
+		}
+	}
+
+	private async specSlugForLeaseTarget(target: LeaseEntry["target"]): Promise<string | null> {
+		if (target.kind === "spec") return target.slug;
+		const stored = await this.ctx.storage.get<PlanRecord>(planKey(target.id));
+		return stored?.spec_slug ?? null;
+	}
+
+	private async bindWorkspaceOnTake(
+		specSlug: string,
+		kind: "spec" | "plan",
+		lock: NonNullable<SpecRecord["lock"]>,
+		platformRoot: string | undefined,
+		workspaceIsolation: boolean,
+	): Promise<WorkspaceLease | undefined> {
+		if (!workspaceIsolation || !platformRoot) return undefined;
+		const rootParsed = validatePlatformRoot(platformRoot);
+		if (!rootParsed.ok) return undefined;
+		const existing = await getWorkspaceLease(this.ctx.storage, specSlug);
+		if (existing && existing.agent_id !== lock.agent_id) {
+			return existing;
+		}
+		const lease = computeWorkspaceManifest(specSlug, kind, rootParsed.value, lock);
+		await upsertWorkspaceLease(this.ctx.storage, lease);
+		return lease;
+	}
+
+	private async listWorkspaces(url: URL): Promise<Response> {
+		const specSlug = url.searchParams.get("spec_slug")?.trim() || undefined;
+		const leases = await listWorkspaceLeases(this.ctx.storage, specSlug);
+		return Response.json({
+			ok: true,
+			workspaces: leases.map(toWorkspaceSummary),
+		});
+	}
+
+	private async deleteWorkspace(id: string, request: Request): Promise<Response> {
+		const lease = await getWorkspaceLease(this.ctx.storage, id);
+		if (!lease) {
+			return Response.json({ ok: true, deleted: false, idempotent: true });
+		}
+
+		let agentId: string | undefined;
+		if (request.headers.get("content-type")?.includes("application/json")) {
+			try {
+				const raw = await request.json();
+				const parsed = parseLockInput(raw);
+				if (parsed.ok) agentId = parsed.value.agent_id;
+			} catch {
+				/* optional body */
+			}
+		}
+
+		if (agentId && lease.agent_id !== agentId) {
+			return Response.json(
+				{ ok: false, error: "workspace held by another agent", workspace: toWorkspaceSummary(lease) },
+				{ status: 403 },
+			);
+		}
+
+		await removeWorkspaceLease(this.ctx.storage, id);
+		return Response.json({ ok: true, deleted: true, id });
 	}
 
 	private async listErrors(): Promise<Response> {

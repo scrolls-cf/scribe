@@ -15,6 +15,7 @@ function planWithPhases(id: string, phases: PlanRecord["phases"]): PlanRecord {
 		phases,
 		tasks: [],
 		lock: null,
+		etag: now,
 		created_at: now,
 		updated_at: now,
 	};

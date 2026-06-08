@@ -42,7 +42,7 @@ Scale: page title `clamp(1.5rem, 3vw, 2rem)`, spec titles `1.125rem`, body `1rem
 
 - **App shell:** sticky blurred header, mono `scribe` mark + `devscrolls` platform pill, keyboard hint strip
 - **Atmosphere:** 24px grid mask (not radial glow), surface elevation via `--shadow-raised`
-- **Work tree:** flat ledger groups (`work-group` top borders only); three-column rows (kind | title | status). Two row types — `work-row--spec` and `work-row--impl`. Implementations nest with padding tint only, no side stripes. Detached groups use **Spec completed · {slug}** in mono. Detail open compacts tree rail.
+- **Work tree:** flat ledger groups (`work-group` top borders only); **spec↔plan groups** (`work-group--spec-plan`) nest implementations with left border connector. Three-column rows (kind | title | status). Two row types — `work-row--spec` and `work-row--impl`. **Intent ·** / **Build ·** prefixes on status pills distinguish spec lifecycle from plan execution. Spec rows show plan progress rollup when one linked plan exists. Detached groups use **Spec completed · {slug}** in mono. `ged-smoke-*` artifacts are filtered from the active board (smoke test is the gate). **Done plans stay nested under their spec** until the spec leaves the board — completion shows as **Build · Done** and `N/N phases · complete`.
 - **Status:** mono dot + label on tree rows; toolbar keeps subtle pill chrome
 - **Craft pipeline:** optional `gemini-craft.mjs` with `gemini-3.1-flash-lite` for text direction (no image mocks; use `gemini-3.1-flash-image` for comps)
 - **Spec row:** title, slug, status pill; lock badge only when held (age in screen-reader label)

@@ -48,6 +48,16 @@ export interface SpecSummary {
 	etag: string;
 }
 
+/** Orient projection — summary + phases + footer metadata parsed from body (view=summary). */
+export interface SpecOrientView extends SpecSummary {
+	phases: SpecPhase[];
+	terminal_skill: string | null;
+	design_lane: string | null;
+	plan_id: string | null;
+	review_gate: string | null;
+	plan_review: string | null;
+}
+
 const SLUG_RE = /^[a-z][a-z0-9-]*$/;
 const ID_RE = /^[a-z][a-z0-9-]*$/;
 const STATUSES: SpecStatus[] = ["ready", "in_progress", "blocked", "done"];
@@ -99,6 +109,29 @@ export function toSpecSummary(record: SpecRecord): SpecSummary {
 		active_phase: normalized.active_phase,
 		lock: normalized.lock,
 		etag: normalized.etag,
+	};
+}
+
+export function toSpecOrientView(
+	record: SpecRecord,
+	footerFields: {
+		terminal_skill: string | null;
+		design_lane: string | null;
+		plan_id: string | null;
+		review_gate: string | null;
+		plan_review: string | null;
+	},
+): SpecOrientView {
+	const normalized = normalizeSpecRecord(record);
+	const summary = toSpecSummary(normalized);
+	return {
+		...summary,
+		phases: normalized.phases,
+		terminal_skill: footerFields.terminal_skill,
+		design_lane: footerFields.design_lane,
+		plan_id: footerFields.plan_id,
+		review_gate: footerFields.review_gate,
+		plan_review: footerFields.plan_review,
 	};
 }
 

@@ -77,6 +77,8 @@ Standard best practices: semantic landmarks, visible focus, status not conveyed 
 | Board URL | `https://scrollsmatrix.jvalamis.workers.dev/scribe/` |
 | Routing | scrollsmatrix `SCRIBE` service binding — scribe has `workers_dev: false` |
 | Auth | Cloudflare Access (`devscrolls.cloudflareaccess.com`) |
+| `wrangler deploy` | Uploads a new script version. **`No targets deployed for scribe` is expected** — no `*.workers.dev` route or custom zone route on this worker. Public HTTP is `{SCROLLSMATRIX_URL}/scribe/` via the gateway service binding. Confirm with `npm run scribe:smoke` from ged root. |
+| Config | Canonical wrangler file: `wrangler.jsonc` only (do not add `wrangler.toml` — conflicts on `workers_dev`). |
 
 **Agents:** `npm run scribe:snapshot` from agents repo (uses `cloudflared access login` or `CF_ACCESS_*` in `.env`). Impeccable critique targets this URL, not local-only assets.
 
