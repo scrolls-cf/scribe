@@ -80,7 +80,7 @@ export class Scribe extends DurableObject<Env> {
 		if (!isWebSocketUpgrade(request)) {
 			return Response.json({ ok: false, error: "upgrade required" }, { status: 426 });
 		}
-		const holder = resolveLockHolder(request, this.env);
+		const holder = resolveLockHolder(request);
 		if (!holder) {
 			return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
 		}

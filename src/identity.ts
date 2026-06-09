@@ -1,4 +1,4 @@
-/** Headers set by scrollsmatrix gateway from Cloudflare Access JWT. */
+/** Headers set by scrollsmatrix gateway from verified CF Access JWT. */
 export const MATRIX_USER_EMAIL = "x-matrix-user-email";
 export const MATRIX_USER_SUB = "x-matrix-user-sub";
 
@@ -9,36 +9,26 @@ export interface LockHolder {
 	holder_kind: HolderKind;
 }
 
-export interface AuthEnv {
-	CLOUDFLARE_API_TOKEN?: string;
-}
-
-export function parseBearerToken(request: Request): string | null {
-	const header = request.headers.get("Authorization")?.trim();
-	if (!header) return null;
-	const match = header.match(/^Bearer\s+(.+)$/i);
-	return match?.[1]?.trim() || null;
+function isLocalDev(hostname: string): boolean {
+	const h = hostname.toLowerCase();
+	return h === "localhost" || h === "127.0.0.1" || h === "[::1]";
 }
 
 /**
- * Auth order:
- * 1. Bearer CLOUDFLARE_API_TOKEN (ged stack — same token wrangler uses)
- * 2. CF Access identity headers (scrollsmatrix gateway)
+ * Auth: CF Access identity forwarded by scrollsmatrix (human or service token).
+ * Local wrangler dev: allow without Access.
  */
-export function resolveLockHolder(request: Request, env: AuthEnv = {}): LockHolder | null {
-	const expected = env.CLOUDFLARE_API_TOKEN?.trim();
-	if (expected) {
-		const bearer = parseBearerToken(request);
-		if (bearer && bearer === expected) {
-			return { holder_id: "ged-stack", holder_kind: "agent" };
-		}
+export function resolveLockHolder(request: Request): LockHolder | null {
+	const url = new URL(request.url);
+	if (isLocalDev(url.hostname)) {
+		return { holder_id: "local-dev", holder_kind: "agent" };
 	}
 
 	const email = request.headers.get(MATRIX_USER_EMAIL)?.trim();
 	if (email) return { holder_id: email, holder_kind: "user" };
 
 	const sub = request.headers.get(MATRIX_USER_SUB)?.trim();
-	if (sub) return { holder_id: sub, holder_kind: "user" };
+	if (sub) return { holder_id: sub, holder_kind: "agent" };
 
 	return null;
 }

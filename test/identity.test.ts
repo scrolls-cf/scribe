@@ -1,37 +1,38 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseBearerToken, resolveLockHolder } from "../src/identity.ts";
+import { resolveLockHolder } from "../src/identity.ts";
 
 describe("identity", () => {
-	it("parseBearerToken reads Authorization header", () => {
-		const req = new Request("https://x/", {
-			headers: { Authorization: "Bearer sekret" },
-		});
-		assert.equal(parseBearerToken(req), "sekret");
-	});
-
-	it("resolveLockHolder accepts CLOUDFLARE_API_TOKEN bearer", () => {
-		const req = new Request("https://x/", {
-			headers: { Authorization: "Bearer cf-token" },
-		});
-		const holder = resolveLockHolder(req, { CLOUDFLARE_API_TOKEN: "cf-token" });
-		assert.deepEqual(holder, { holder_id: "ged-stack", holder_kind: "agent" });
-	});
-
-	it("resolveLockHolder rejects wrong bearer", () => {
-		const req = new Request("https://x/", {
-			headers: { Authorization: "Bearer wrong" },
-		});
-		assert.equal(resolveLockHolder(req, { CLOUDFLARE_API_TOKEN: "expected" }), null);
-	});
-
 	it("resolveLockHolder accepts CF Access email header", () => {
-		const req = new Request("https://x/", {
+		const req = new Request("https://scrollsmatrix.example/", {
 			headers: { "x-matrix-user-email": "you@example.com" },
 		});
-		assert.deepEqual(resolveLockHolder(req, { CLOUDFLARE_API_TOKEN: "x" }), {
+		assert.deepEqual(resolveLockHolder(req), {
 			holder_id: "you@example.com",
 			holder_kind: "user",
 		});
+	});
+
+	it("resolveLockHolder accepts CF Access sub as agent", () => {
+		const req = new Request("https://scrollsmatrix.example/", {
+			headers: { "x-matrix-user-sub": "service-token-id" },
+		});
+		assert.deepEqual(resolveLockHolder(req), {
+			holder_id: "service-token-id",
+			holder_kind: "agent",
+		});
+	});
+
+	it("resolveLockHolder allows local wrangler dev", () => {
+		const req = new Request("http://127.0.0.1:8791/events");
+		assert.deepEqual(resolveLockHolder(req), {
+			holder_id: "local-dev",
+			holder_kind: "agent",
+		});
+	});
+
+	it("resolveLockHolder rejects unauthenticated production requests", () => {
+		const req = new Request("https://scrollsmatrix.example/events");
+		assert.equal(resolveLockHolder(req), null);
 	});
 });

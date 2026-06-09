@@ -1,3 +1,2 @@
-# Optional for wrangler dev — wrangler also loads CLOUDFLARE_API_TOKEN from process.env
-# (same value as ged repo-root .env)
-CLOUDFLARE_API_TOKEN=
+# wrangler dev — no runtime secrets required.
+# Deploy uses `wrangler login` / CLOUDFLARE_API_TOKEN in your shell env.

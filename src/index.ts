@@ -7,8 +7,6 @@ export { Scribe };
 export interface Env {
 	SCRIBE: DurableObjectNamespace<Scribe>;
 	ASSETS?: Fetcher;
-	/** wrangler secret — same CLOUDFLARE_API_TOKEN ged uses for wrangler */
-	CLOUDFLARE_API_TOKEN: string;
 }
 
 const DEFAULT_PROJECT = "ged";
