@@ -1,22 +1,3 @@
-node_modules/
+.dev.vars
 .wrangler/
-worker-configuration.d.ts
-dist/
-
-.graphify/
-.cursor/
-
-# Impeccable session artifacts (keep .impeccable/live/config.json tracked)
-.impeccable/craft/
-.impeccable/deployed/
-.impeccable/critique/
-.impeccable/*.png
-.impeccable/hook.cache.json
-.impeccable/live/sessions/
-.impeccable/live/cache/
-.impeccable/live/previews/
-.impeccable/live/annotations/
-.impeccable/live/manual-edit-events.jsonl
-.impeccable/live/pending-manual-edits.json
-.impeccable/live/manual-edit-evidence/
-.impeccable/live/deferred-svelte-component-accepts.json
+node_modules/

@@ -14,5 +14,8 @@
 	"durable_objects": {
 		"bindings": [{ "name": "SCRIBE", "class_name": "Scribe" }]
 	},
-	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Scribe"] }]
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Scribe"] }],
+	"secrets": {
+		"required": ["CLOUDFLARE_API_TOKEN"]
+	}
 }

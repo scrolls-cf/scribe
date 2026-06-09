@@ -1,0 +1,13 @@
+scribe workflow
+
+will work as a harness for ged and control the workflow of a spec from the planning phase to design and deployment
+
+1. draft uploaded to scribe, rough outline of a feature that an agent needs to review/refactor into a proper spec
+2. written spec waits for review/refactor into an implementation plan
+3. written spec and implementaion plan pass review/refactor loop
+4. implementation plan locked by scribe, scoped to agent
+3. written spec and implementation plan are used as context for design
+5. start implementation, design get a summary of changes for context each phase, scribe gets a progress update each phase
+6. finish implementation plan, final refactor/review loop, finish design
+7. commit and deploy
+

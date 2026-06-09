@@ -1,6 +1,0 @@
-{
-  "files": ["public/index.html", "public/spec/index.html"],
-  "insertBefore": "</head>",
-  "commentSyntax": "html",
-  "cspChecked": false
-}

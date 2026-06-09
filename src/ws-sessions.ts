@@ -4,13 +4,12 @@ import {
 	parseClientFilters,
 	type ClientFilter,
 	type ConnectedEvent,
-	type LockChangedEvent,
-	type PlanUpdatedEvent,
-	type QueueTakenEvent,
 	type ScribeServerEvent,
-	type SpecUpdatedEvent,
-	type TransitionAppliedEvent,
+	type WorkflowUpdateEvent,
 } from "./events.ts";
+import { buildHarnessContext, type HarnessContext } from "./harness.ts";
+import type { LockHolder } from "./identity.ts";
+import type { WorkflowRecord } from "./workflow.ts";
 
 export const EVENT_SEQ_KEY = "events:seq";
 export const EVENT_RING_KEY = "events:ring";
@@ -24,24 +23,19 @@ export interface WsSessionAttachment {
 	filters: ClientFilter[];
 	since_seq: number;
 	project: string;
+	holder_id: string;
+	holder_kind: "user" | "agent";
 }
 
 export interface DurableStorageLike {
 	get<T>(key: string): Promise<T | undefined>;
 	put(key: string, value: unknown): Promise<void>;
+	list(options?: { prefix?: string }): Promise<Map<string, unknown>>;
 }
 
 export interface WsBroadcastContext {
 	getWebSockets(): WebSocket[];
 }
-
-/** Fan-out payload — `event_id`, `seq`, and `project` are assigned at broadcast time. */
-export type ScribeBroadcastInput =
-	| Omit<SpecUpdatedEvent, "event_id" | "seq" | "project">
-	| Omit<PlanUpdatedEvent, "event_id" | "seq" | "project">
-	| Omit<LockChangedEvent, "event_id" | "seq" | "project">
-	| Omit<QueueTakenEvent, "event_id" | "seq" | "project">
-	| Omit<TransitionAppliedEvent, "event_id" | "seq" | "project">;
 
 export function parseWsAttachment(raw: unknown): WsSessionAttachment | null {
 	if (typeof raw !== "string" || !raw.trim()) return null;
@@ -52,6 +46,8 @@ export function parseWsAttachment(raw: unknown): WsSessionAttachment | null {
 			filters: Array.isArray(parsed.filters) ? parsed.filters : [],
 			since_seq: Number.isFinite(parsed.since_seq) ? parsed.since_seq : 0,
 			project: typeof parsed.project === "string" ? parsed.project : "ged",
+			holder_id: typeof parsed.holder_id === "string" ? parsed.holder_id : "",
+			holder_kind: parsed.holder_kind === "user" ? "user" : "agent",
 		};
 	} catch {
 		return null;
@@ -97,75 +93,46 @@ export function replaySince(
 
 export function eventMatchesFilters(event: ScribeServerEvent, filters: ClientFilter[]): boolean {
 	if (filters.length === 0) return true;
-	for (const filter of filters) {
-		if (filter.kind === "spec" && event.type === "spec_updated" && event.spec?.slug === filter.slug) {
-			return true;
-		}
-		if (filter.kind === "plan" && event.type === "plan_updated" && event.plan?.id === filter.id) {
-			return true;
-		}
-		if (filter.kind === "spec" && event.type === "lock_changed" && event.spec_slug === filter.slug) {
-			return true;
-		}
-		if (filter.kind === "plan" && event.type === "lock_changed" && event.plan_id === filter.id) {
-			return true;
-		}
-		if (filter.kind === "spec" && event.type === "queue_taken" && event.spec_slug === filter.slug) {
-			return true;
-		}
-		if (filter.kind === "plan" && event.type === "queue_taken" && event.plan_id === filter.id) {
-			return true;
-		}
-	}
-	return false;
+	if (event.type !== "workflow_update") return false;
+	return filters.some((f) => {
+		if (f.kind === "spec") return f.slug === event.slug;
+		if (f.kind === "plan") return f.id === event.slug;
+		return false;
+	});
+}
+
+export interface ConnectSession {
+	holder: LockHolder;
+	filters: ClientFilter[];
 }
 
 export async function buildConnectedFrame(
 	storage: DurableStorageLike,
 	project: string,
 	sinceSeq: number,
+	session: ConnectSession,
 ): Promise<ConnectedEvent> {
 	const seq = await nextEventSeq(storage);
 	const ring = (await storage.get<StoredRingEntry[]>(EVENT_RING_KEY)) ?? [];
 	const replay = replaySince(ring, sinceSeq);
+	const harness = await buildHarnessContext(storage, session.holder, session.filters);
 	const frame: ConnectedEvent = {
 		type: "connected",
 		event_id: crypto.randomUUID(),
 		seq,
 		project,
 		replay,
+		harness,
 	};
-	await appendEventRing(storage, frame);
 	return frame;
 }
 
-export async function broadcastScribeEvent(
+export async function buildHarnessRefresh(
 	storage: DurableStorageLike,
-	ctx: WsBroadcastContext,
-	project: string,
-	input: ScribeBroadcastInput,
-	opts: { event_id?: string } = {},
-): Promise<ScribeServerEvent> {
-	const seq = await nextEventSeq(storage);
-	const frame = {
-		...input,
-		event_id: opts.event_id ?? crypto.randomUUID(),
-		seq,
-		project,
-	} as ScribeServerEvent;
-	await appendEventRing(storage, frame);
-	const payload = JSON.stringify(frame);
-	for (const ws of ctx.getWebSockets()) {
-		const attachment = parseWsAttachment(ws.deserializeAttachment());
-		if (!attachment || attachment.project !== project) continue;
-		if (!eventMatchesFilters(frame, attachment.filters)) continue;
-		try {
-			ws.send(payload);
-		} catch {
-			/* client disconnected */
-		}
-	}
-	return frame;
+	holder: LockHolder,
+	filters: ClientFilter[],
+): Promise<HarnessContext> {
+	return buildHarnessContext(storage, holder, filters);
 }
 
 export function isWebSocketUpgrade(request: Request): boolean {
@@ -177,6 +144,33 @@ export function parseSinceSeq(url: URL): number {
 	if (!raw) return 0;
 	const n = Number.parseInt(raw, 10);
 	return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+export async function broadcastWorkflowUpdate(
+	storage: DurableStorageLike,
+	wsCtx: WsBroadcastContext,
+	project: string,
+	record: WorkflowRecord,
+): Promise<WorkflowUpdateEvent> {
+	const seq = await nextEventSeq(storage);
+	const event: WorkflowUpdateEvent = {
+		type: "workflow_update",
+		event_id: crypto.randomUUID(),
+		seq,
+		project,
+		slug: record.slug,
+		phase: record.phase,
+		workflow: record,
+	};
+	await appendEventRing(storage, event);
+	const payload = JSON.stringify(event);
+	for (const ws of wsCtx.getWebSockets()) {
+		const attachment = parseWsAttachment(ws.deserializeAttachment());
+		if (!attachment || attachment.project !== project) continue;
+		if (!eventMatchesFilters(event, attachment.filters)) continue;
+		ws.send(payload);
+	}
+	return event;
 }
 
 export { parseClientFilters };

@@ -1,16 +1,16 @@
 import { Hono } from "hono";
-import { Scribe } from "./scribe";
-import { SCRIBE_MATRIX_MANIFEST } from "./matrix-manifest";
+import { Scribe } from "./scribe.ts";
 
 export { Scribe };
 
 export interface Env {
 	SCRIBE: DurableObjectNamespace<Scribe>;
 	ASSETS?: Fetcher;
+	/** wrangler secret — same CLOUDFLARE_API_TOKEN ged uses for wrangler */
+	CLOUDFLARE_API_TOKEN: string;
 }
 
-const DEFAULT_PROJECT = "default";
-const MATRIX_PROJECT = "matrix";
+const DEFAULT_PROJECT = "ged";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -24,25 +24,10 @@ async function forwardToProject(
 	suffix: string,
 ) {
 	const stub = projectStub(c.env, projectId);
-	const method = c.req.raw.method;
-
-	const orchestrateMatch = suffix.match(/^orchestrate\/([^/]+)\/transition$/);
-	if (orchestrateMatch && method === "POST") {
-		return stub.applyOrchestrateTransition(decodeURIComponent(orchestrateMatch[1]), c.req.raw);
-	}
-	if (suffix === "queue/take" && method === "POST") {
-		return stub.takeQueueItem(c.req.raw);
-	}
-	if (suffix === "agents/check-in" && method === "POST") {
-		return stub.agentCheckIn(c.req.raw);
-	}
-
 	const target = new URL(c.req.url);
 	target.pathname = suffix ? `/${suffix}` : "/health";
 	return stub.fetch(new Request(target.toString(), c.req.raw));
 }
-
-app.get("/.well-known/matrix", (c) => c.json(SCRIBE_MATRIX_MANIFEST));
 
 app.get("/health", (c) => c.json({ ok: true, service: "scribe" }));
 
@@ -54,55 +39,19 @@ app.all("/v1/projects/*", async (c) => {
 	return forwardToProject(c, projectId, suffix);
 });
 
-app.get("/specs/:slug", async (c) => {
-	if (!c.req.header("accept")?.includes("application/json")) {
-		return c.notFound();
-	}
-	return forwardToProject(c, DEFAULT_PROJECT, `specs/${c.req.param("slug")}`);
-});
-
-app.get("/", async (c) => {
+app.get("/", (c) => {
 	if (!c.req.header("accept")?.includes("application/json")) {
 		return c.notFound();
 	}
 	return c.json({
 		ok: true,
 		service: "scribe",
-		matrix_project: MATRIX_PROJECT,
+		harness: "ged",
 		endpoints: {
 			health: "/health",
-			matrix: "/.well-known/matrix",
-			projects: "/v1/projects/:project",
-			ui: "/",
+			events: "/v1/projects/:project/events",
 		},
 	});
 });
 
-function assetRequest(request: Request): Request {
-	const url = new URL(request.url);
-	const specPage = url.pathname.match(/^\/specs\/([^/]+)\/?$/);
-	if (specPage && !request.headers.get("accept")?.includes("application/json")) {
-		url.pathname = "/spec/";
-		return new Request(url.toString(), request);
-	}
-	const planPage = url.pathname.match(/^\/plans\/([^/]+)\/?$/);
-	if (planPage && !request.headers.get("accept")?.includes("application/json")) {
-		url.pathname = "/plan/";
-		return new Request(url.toString(), request);
-	}
-	return request;
-}
-
-export default {
-	async fetch(request: Request, env: Env, ctx: ExecutionContext) {
-		const res = await app.fetch(request, env, ctx);
-		if (res.status !== 404) return res;
-		if (env.ASSETS && (request.method === "GET" || request.method === "HEAD")) {
-			return env.ASSETS.fetch(assetRequest(request));
-		}
-		return new Response(JSON.stringify({ ok: false, error: "not_found" }), {
-			status: 404,
-			headers: { "content-type": "application/json" },
-		});
-	},
-};
+export default app;
