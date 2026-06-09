@@ -1892,11 +1892,13 @@ export class Scribe extends DurableObject {
 					updated_at: now,
 					etag: now,
 				};
-				await putSpecRecord(this.ctx.storage, updated);
+				await this.releaseSpecLockRecord(target.slug, updated);
 				await this.fanOutLockChanged("spec", "lease_alarm", null, target.slug);
 				if (updated.status !== record.status) {
 					await this.fanOutSpecUpdated(updated, "lease_alarm");
 				}
+			} else {
+				await deleteLeaseEntry(this.ctx.storage, target);
 			}
 			console.log(
 				JSON.stringify({ event: "lease_expired", kind: "spec", slug: target.slug, holder_id: entry.holder_id }),
@@ -1911,11 +1913,13 @@ export class Scribe extends DurableObject {
 					status: record.status === "in_progress" ? "ready" : record.status,
 					updated_at: now,
 				};
-				await this.ctx.storage.put(planKey(target.id), updated);
+				await this.releasePlanLockRecord(target.id, updated, { kind: "plan", id: target.id });
 				await this.fanOutLockChanged("plan", "lease_alarm", null, record.spec_slug ?? "", target.id);
 				if (updated.status !== record.status) {
 					await this.fanOutPlanUpdated(updated);
 				}
+			} else {
+				await deleteLeaseEntry(this.ctx.storage, target);
 			}
 			console.log(
 				JSON.stringify({ event: "lease_expired", kind: "plan", id: target.id, holder_id: entry.holder_id }),
@@ -1937,7 +1941,11 @@ export class Scribe extends DurableObject {
 					),
 					updated_at: now,
 				};
-				await this.ctx.storage.put(planKey(target.id), updated);
+				await this.releasePlanLockRecord(target.id, updated, {
+					kind: "plan-phase",
+					id: target.id,
+					phaseId: target.phaseId,
+				});
 				await this.fanOutLockChanged(
 					"plan-phase",
 					"lease_alarm",
@@ -1947,6 +1955,8 @@ export class Scribe extends DurableObject {
 					target.phaseId,
 				);
 				await this.fanOutPlanUpdated(updated);
+			} else {
+				await deleteLeaseEntry(this.ctx.storage, target);
 			}
 			console.log(
 				JSON.stringify({
@@ -1958,8 +1968,6 @@ export class Scribe extends DurableObject {
 				}),
 			);
 		}
-
-		await this.ctx.storage.delete(leaseStorageKey(target));
 
 		const specSlug = await this.specSlugForLeaseTarget(target);
 		if (specSlug) {
