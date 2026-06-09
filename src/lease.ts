@@ -91,9 +91,22 @@ export function nextLeaseExpiryMs(entries: LeaseEntry[]): number | null {
 	return Math.min(...entries.map((e) => e.expires_at_ms));
 }
 
+import type { RevisionSql } from "./revision-record.ts";
+import {
+	deleteLeaseEntrySql,
+	listLeaseEntriesSql,
+	upsertLeaseEntrySql,
+} from "./lease-store.ts";
+
+export function listLeaseEntriesFromSql(sql: RevisionSql): LeaseEntry[] {
+	return listLeaseEntriesSql(sql);
+}
+
 export async function listLeaseEntries(
 	storage: DurableObjectStorage,
+	sql?: RevisionSql,
 ): Promise<LeaseEntry[]> {
+	if (sql) return listLeaseEntriesSql(sql);
 	const listed = await storage.list<LeaseEntry>({ prefix: LEASE_PREFIX });
 	return [...listed.values()];
 }
@@ -101,20 +114,30 @@ export async function listLeaseEntries(
 type LeaseStorageWriter = Pick<DurableObjectStorage, "put">;
 type LeaseStorageDeleter = Pick<DurableObjectStorage, "delete">;
 
-/** Persist lease index entry only — pair with syncLeaseAlarm after transactions commit. */
-export async function putLeaseEntry(
-	storage: LeaseStorageWriter,
-	target: LeaseTarget,
-	lock: SpecLock,
-): Promise<void> {
-	if (!lock.expires_at) return;
-	const entry: LeaseEntry = {
+function leaseEntryFromLock(target: LeaseTarget, lock: SpecLock): LeaseEntry | null {
+	if (!lock.expires_at) return null;
+	return {
 		target,
 		expires_at_ms: new Date(lock.expires_at).getTime(),
 		acquired_at: lock.acquired_at,
 		holder_id: lock.agent_id,
 		holder_kind: lock.holder_kind ?? "agent",
 	};
+}
+
+/** Persist lease index entry only — pair with syncLeaseAlarm after transactions commit. */
+export async function putLeaseEntry(
+	storage: LeaseStorageWriter,
+	target: LeaseTarget,
+	lock: SpecLock,
+	sql?: RevisionSql,
+): Promise<void> {
+	const entry = leaseEntryFromLock(target, lock);
+	if (!entry) return;
+	if (sql) {
+		upsertLeaseEntrySql(sql, target, entry);
+		return;
+	}
 	await storage.put(leaseStorageKey(target), entry);
 }
 
@@ -122,30 +145,40 @@ export async function upsertLease(
 	storage: DurableObjectStorage,
 	target: LeaseTarget,
 	lock: SpecLock,
+	sql?: RevisionSql,
 ): Promise<void> {
-	await putLeaseEntry(storage, target, lock);
-	await syncLeaseAlarm(storage);
+	await putLeaseEntry(storage, target, lock, sql);
+	await syncLeaseAlarm(storage, sql);
 }
 
 /** Remove lease index entry only — pair with syncLeaseAlarm after transactions commit. */
 export async function deleteLeaseEntry(
 	storage: LeaseStorageDeleter,
 	target: LeaseTarget,
+	sql?: RevisionSql,
 ): Promise<void> {
+	if (sql) {
+		deleteLeaseEntrySql(sql, target);
+		return;
+	}
 	await storage.delete(leaseStorageKey(target));
 }
 
 export async function removeLease(
 	storage: DurableObjectStorage,
 	target: LeaseTarget,
+	sql?: RevisionSql,
 ): Promise<void> {
-	await deleteLeaseEntry(storage, target);
-	await syncLeaseAlarm(storage);
+	await deleteLeaseEntry(storage, target, sql);
+	await syncLeaseAlarm(storage, sql);
 }
 
 /** Maintain one alarm for the earliest pending lease expiry. */
-export async function syncLeaseAlarm(storage: DurableObjectStorage): Promise<void> {
-	const entries = await listLeaseEntries(storage);
+export async function syncLeaseAlarm(
+	storage: DurableObjectStorage,
+	sql?: RevisionSql,
+): Promise<void> {
+	const entries = await listLeaseEntries(storage, sql);
 	const next = nextLeaseExpiryMs(entries);
 	if (next === null) {
 		await storage.deleteAlarm();

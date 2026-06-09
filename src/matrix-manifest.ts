@@ -34,6 +34,11 @@ export const SCRIBE_MATRIX_MANIFEST: MatrixManifest = {
 		{ method: "POST", path: "/v1/projects/:project/plans/:id/phases/:phaseId/lock", summary: "Acquire plan phase lock" },
 		{ method: "DELETE", path: "/v1/projects/:project/plans/:id/phases/:phaseId/lock", summary: "Release plan phase lock" },
 		{ method: "POST", path: "/v1/projects/:project/queue/take", summary: "Pick + lock closest phase or spec" },
+		{
+			method: "POST",
+			path: "/v1/projects/:project/agents/check-in",
+			summary: "Agent show-up — take or resume + assignment (mode, next_actions, endpoints)",
+		},
 		{ method: "GET", path: "/v1/projects/:project/plans", summary: "List plans" },
 		{ method: "GET", path: "/v1/projects/:project/errors", summary: "Unresolved errors board" },
 		{ method: "POST", path: "/v1/projects/:project/errors", summary: "Report error" },

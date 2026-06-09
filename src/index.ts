@@ -15,7 +15,7 @@ const MATRIX_PROJECT = "matrix";
 const app = new Hono<{ Bindings: Env }>();
 
 function projectStub(env: Env, projectId: string) {
-	return env.SCRIBE.get(env.SCRIBE.idFromName(projectId));
+	return env.SCRIBE.getByName(projectId);
 }
 
 async function forwardToProject(
@@ -32,6 +32,9 @@ async function forwardToProject(
 	}
 	if (suffix === "queue/take" && method === "POST") {
 		return stub.takeQueueItem(c.req.raw);
+	}
+	if (suffix === "agents/check-in" && method === "POST") {
+		return stub.agentCheckIn(c.req.raw);
 	}
 
 	const target = new URL(c.req.url);
