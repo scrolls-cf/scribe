@@ -123,6 +123,14 @@ import {
 	TRANSITION_CACHE_PREFIX,
 } from "./orchestrate.ts";
 import {
+	assertPhaseCompletionEvidence,
+	assertPlanReadyForImplementPromotion,
+	assertSpecBodyReadyForImplement,
+	applyPhaseEvidenceFields,
+	OrchestrationGateError,
+	phasesBecomingDone,
+} from "./orchestration-gates.ts";
+import {
 	buildQueueTakenEventId,
 	type LockChangedCause,
 	type SpecUpdatedCause,
@@ -153,6 +161,16 @@ import {
 } from "./ws-sessions.ts";
 
 const SCRIBE_PROJECT = "ged";
+
+function orchestrateGateResponse(err: unknown): Response | null {
+	if (err instanceof OrchestratePreconditionError || err instanceof OrchestrationGateError) {
+		return Response.json(
+			{ ok: false, error: err.message, code: err.code },
+			{ status: 422 },
+		);
+	}
+	return null;
+}
 
 export interface ScribeEnv {
 	SCRIBE: DurableObjectNamespace<Scribe>;
@@ -970,12 +988,8 @@ export class Scribe extends DurableObject<ScribeEnv> {
 				return Response.json({ ok: false, error: "unknown event" }, { status: 400 });
 			}
 		} catch (err) {
-			if (err instanceof OrchestratePreconditionError) {
-				return Response.json(
-					{ ok: false, error: err.message, code: err.code },
-					{ status: 422 },
-				);
-			}
+			const gateErr = orchestrateGateResponse(err);
+			if (gateErr) return gateErr;
 			throw err;
 		}
 
@@ -1545,11 +1559,50 @@ export class Scribe extends DurableObject<ScribeEnv> {
 			);
 		}
 
-		const nextPhases = parsed.value.phases ?? record.phases;
+		let nextPhases = parsed.value.phases ?? record.phases;
+		try {
+			for (const phase of phasesBecomingDone(record.phases, nextPhases)) {
+				const evidence = assertPhaseCompletionEvidence(phase);
+				nextPhases = nextPhases.map((p) =>
+					p.id === phase.id ? applyPhaseEvidenceFields({ ...p, status: "done" }, evidence) : p,
+				);
+			}
+		} catch (err) {
+			const gateErr = orchestrateGateResponse(err);
+			if (gateErr) return gateErr;
+			throw err;
+		}
 		const stampedPhases = stampPhaseCompletions(record.phases, nextPhases);
 
 		const now = new Date().toISOString();
 		const nextStatus = parsed.value.status ?? record.status;
+		if (
+			record.spec_slug &&
+			(nextStatus === "ready" || nextStatus === "in_progress") &&
+			nextStatus !== record.status
+		) {
+			const specStored = await this.ctx.storage.get<SpecRecord>(specKey(record.spec_slug));
+			if (specStored) {
+				const spec = await hydrateSpecRecord(this.ctx.storage, record.spec_slug, specStored);
+				const candidate = normalizePlanRecord({
+					...record,
+					phases: stampedPhases,
+					status: nextStatus,
+				});
+				try {
+					if (nextStatus === "ready") {
+						assertPlanReadyForImplementPromotion(candidate, spec);
+					} else {
+						assertSpecBodyReadyForImplement(spec);
+						assertPlanReadyForImplementPromotion(candidate, spec);
+					}
+				} catch (err) {
+					const gateErr = orchestrateGateResponse(err);
+					if (gateErr) return gateErr;
+					throw err;
+				}
+			}
+		}
 		const updated: PlanRecord = {
 			...record,
 			status: nextStatus,

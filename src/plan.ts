@@ -28,6 +28,12 @@ export interface PlanPhase {
 	body: string;
 	lock: SpecLock | null;
 	completed_at?: string | null;
+	/** Research-phase task output path. */
+	evidence?: string | null;
+	/** Implement-phase verify gate command (e.g. npm run x402:smoke). */
+	gate_command?: string | null;
+	/** Hash of gate command stdout — proof gate ran. */
+	stdout_hash?: string | null;
 }
 
 export interface PlanRecord extends RevisionSummaryFields {
@@ -344,6 +350,16 @@ function parsePlanPhases(raw: unknown): PlanPhase[] | null {
 		const body = typeof p.body === "string" ? p.body : "";
 		if (!id || !PHASE_ID_RE.test(id) || !title || Number.isNaN(index)) return null;
 		if (!TASK_STATUSES.includes(status as PlanPhaseStatus)) return null;
+		const evidence =
+			typeof p.evidence === "string" ? p.evidence.trim() || null : p.evidence ?? null;
+		const gate_command =
+			typeof p.gate_command === "string"
+				? p.gate_command.trim() || null
+				: p.gate_command ?? null;
+		const stdout_hash =
+			typeof p.stdout_hash === "string"
+				? p.stdout_hash.trim() || null
+				: p.stdout_hash ?? null;
 		phases.push({
 			id,
 			index,
@@ -353,6 +369,9 @@ function parsePlanPhases(raw: unknown): PlanPhase[] | null {
 			lock: p.lock ?? null,
 			completed_at:
 				typeof p.completed_at === "string" ? p.completed_at : p.completed_at ?? null,
+			evidence,
+			gate_command,
+			stdout_hash,
 		});
 	}
 	return phases;

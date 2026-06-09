@@ -1,3 +1,12 @@
+import {
+	assertAcceptanceCriteriaClosed,
+	assertPhaseCompletionEvidence,
+	assertPlanReadyForImplementPromotion,
+	assertSpecBodyReadyForImplement,
+	applyPhaseEvidenceFields,
+	isThinOrBoilerplatePlan,
+	type PhaseEvidenceInput,
+} from "./orchestration-gates.ts";
 import type { PlanPhase, PlanRecord } from "./plan.ts";
 import {
 	normalizePlanRecord,
@@ -38,6 +47,12 @@ export interface OrchestratePayload {
 	spec_phase_updates?: SpecPhaseUpdate[];
 	phase_id?: string;
 	phase_index?: number;
+	/** Research-phase task output path. */
+	evidence?: string;
+	/** Implement-phase verify gate command. */
+	gate_command?: string;
+	/** Hash of gate command stdout. */
+	stdout_hash?: string;
 }
 
 export interface OrchestrateRequest {
@@ -130,6 +145,9 @@ export function parseOrchestrateRequest(
 			spec_phase_updates: parseSpecPhaseUpdates(p.spec_phase_updates),
 			phase_id: typeof p.phase_id === "string" ? p.phase_id.trim() : undefined,
 			phase_index,
+			evidence: typeof p.evidence === "string" ? p.evidence.trim() : undefined,
+			gate_command: typeof p.gate_command === "string" ? p.gate_command.trim() : undefined,
+			stdout_hash: typeof p.stdout_hash === "string" ? p.stdout_hash.trim() : undefined,
 		};
 	}
 	return {
@@ -241,14 +259,19 @@ export function applyPlanCreated(
 	}
 
 	const now = new Date().toISOString();
-	const blocked = isPlanReviewRequired(specRecord);
+	const thinPlan = isThinOrBoilerplatePlan(planRecord);
+	const blocked = isPlanReviewRequired(specRecord) || thinPlan;
 	let body = specRecord.body;
 	body = upsertFooterPlan(body, planRecord.id);
+	if (thinPlan && !isPlanReviewRequired(specRecord)) {
+		body = upsertFooterPlanReview(body, "required");
+	}
 
 	const updatedSpec = normalizeSpecRecord({
 		...specRecord,
 		body,
 		plan_id: planRecord.id,
+		...(thinPlan ? { plan_review: "required" } : {}),
 		...stamp(now),
 	});
 
@@ -324,6 +347,7 @@ export function applyPlanReviewPassed(
 	if (planRecord.spec_slug && planRecord.spec_slug !== specRecord.slug) {
 		throw new OrchestratePreconditionError("plan_spec_mismatch");
 	}
+	assertSpecBodyReadyForImplement(specRecord);
 
 	const now = new Date().toISOString();
 	let body = payload.body ?? specRecord.body;
@@ -371,9 +395,18 @@ export function applyPhaseDone(
 		return { spec: specRecord, plan: planRecord };
 	}
 
+	const evidencePayload: PhaseEvidenceInput = {
+		evidence: payload.evidence,
+		gate_command: payload.gate_command,
+		stdout_hash: payload.stdout_hash,
+	};
+	const evidenceFields = assertPhaseCompletionEvidence(target, evidencePayload);
+
 	const now = new Date().toISOString();
 	const marked = planRecord.phases.map((p) =>
-		p.id === target.id ? { ...p, status: "done" as const } : p,
+		p.id === target.id
+			? applyPhaseEvidenceFields({ ...p, status: "done" as const }, evidenceFields)
+			: p,
 	);
 	const stamped = stampPhaseCompletions(planRecord.phases, marked);
 
@@ -426,6 +459,8 @@ export function applyImplementStart(
 	if (planRecord.spec_slug && planRecord.spec_slug !== specRecord.slug) {
 		throw new OrchestratePreconditionError("plan_spec_mismatch");
 	}
+	assertSpecBodyReadyForImplement(specRecord);
+	assertPlanReadyForImplementPromotion(planRecord, specRecord);
 
 	const now = new Date().toISOString();
 	const updatedPlan = normalizePlanRecord({
@@ -453,6 +488,7 @@ export function applyShip(
 	if (!isReviewGatePassed(specRecord) && specRecord.status !== "done") {
 		throw new OrchestratePreconditionError("review_gate_not_passed");
 	}
+	assertAcceptanceCriteriaClosed(specRecord);
 
 	const now = new Date().toISOString();
 	let body = payload.body ?? specRecord.body;
