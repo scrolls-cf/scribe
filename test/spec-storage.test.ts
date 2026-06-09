@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseSpecFooterFields } from "./spec-footer.ts";
-import { normalizeSpecRecord, specKey, toSpecOrientView } from "./spec.ts";
+import { parseSpecFooterFields } from "../src/spec-footer.ts";
+import { normalizeSpecRecord, specKey, toSpecOrientView } from "../src/spec.ts";
 import {
 	deleteSpecStorage,
 	hydrateSpecRecord,
@@ -9,7 +9,7 @@ import {
 	putSpecRecord,
 	resolveSpecBody,
 	specBodyKey,
-} from "./spec-storage.ts";
+} from "../src/spec-storage.ts";
 
 function mockStorage() {
 	const map = new Map<string, unknown>();

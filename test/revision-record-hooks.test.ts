@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { describe, it, beforeEach } from "node:test";
-import type { PlanRecord } from "./plan.ts";
-import type { SpecRecord } from "./spec.ts";
-import type { RevisionSql, RevisionSqlCursor, RevisionSqlValue } from "./revision-record.ts";
+import type { PlanRecord } from "../src/plan.ts";
+import type { SpecRecord } from "../src/spec.ts";
+import type { RevisionSql, RevisionSqlCursor, RevisionSqlValue } from "../src/revision-record.ts";
 import {
 	appendRevisionRecordIfNeeded,
 	buildSpecRevisionSnapshot,
@@ -14,7 +14,7 @@ import {
 	planStructureChanged,
 	resetRevisionSchemaForTests,
 	reviewerFromHolder,
-} from "./revision-record.ts";
+} from "../src/revision-record.ts";
 
 function makeRevisionSqlCursor<T extends Record<string, RevisionSqlValue>>(
 	rows: T[],

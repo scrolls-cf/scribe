@@ -5,7 +5,7 @@ import {
 	parseClientFilter,
 	parseClientFilters,
 	validateServerEventFrame,
-} from "./events.ts";
+} from "../src/events.ts";
 
 describe("events", () => {
 	it("parseClientFilter accepts spec and plan slugs", () => {

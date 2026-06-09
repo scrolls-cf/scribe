@@ -4,7 +4,7 @@ import {
 	computeWorkspaceManifest,
 	isLegacyAgentsWorkerPath,
 	validatePlatformRoot,
-} from "./workspace.ts";
+} from "../src/workspace.ts";
 
 describe("validatePlatformRoot", () => {
 	it("accepts absolute forward-slash paths", () => {

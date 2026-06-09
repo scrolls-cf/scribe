@@ -8,7 +8,7 @@ import {
 	resolveLockSessionId,
 	sameLockPrincipal,
 	sessionLockConflict,
-} from "./identity.ts";
+} from "../src/identity.ts";
 
 function req(headers: Record<string, string> = {}): Request {
 	return new Request("https://example.com", { headers });

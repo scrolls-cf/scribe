@@ -13,7 +13,7 @@ import {
 	syncLeaseAlarm,
 	upsertLease,
 	type LeaseEntry,
-} from "./lease.ts";
+} from "../src/lease.ts";
 
 class MockStorage {
 	#data = new Map<string, unknown>();

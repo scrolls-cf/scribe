@@ -109,19 +109,21 @@ export function toWorkspaceSummary(lease: WorkspaceLease): WorkspaceSummary {
 	};
 }
 
-export async function listWorkspaceIds(storage: DurableObjectStorage): Promise<string[]> {
+type WorkspaceStorage = Pick<DurableObjectStorage, "get" | "put" | "delete">;
+
+export async function listWorkspaceIds(storage: WorkspaceStorage): Promise<string[]> {
 	return (await storage.get<string[]>(WORKSPACE_INDEX_KEY)) ?? [];
 }
 
 export async function getWorkspaceLease(
-	storage: DurableObjectStorage,
+	storage: WorkspaceStorage,
 	id: string,
 ): Promise<WorkspaceLease | null> {
 	return (await storage.get<WorkspaceLease>(workspaceKey(id))) ?? null;
 }
 
 export async function upsertWorkspaceLease(
-	storage: DurableObjectStorage,
+	storage: WorkspaceStorage,
 	lease: WorkspaceLease,
 ): Promise<void> {
 	await storage.put(workspaceKey(lease.id), lease);
@@ -131,7 +133,7 @@ export async function upsertWorkspaceLease(
 }
 
 export async function removeWorkspaceLease(
-	storage: DurableObjectStorage,
+	storage: WorkspaceStorage,
 	id: string,
 ): Promise<boolean> {
 	const existing = await getWorkspaceLease(storage, id);

@@ -24,6 +24,16 @@ async function forwardToProject(
 	suffix: string,
 ) {
 	const stub = projectStub(c.env, projectId);
+	const method = c.req.raw.method;
+
+	const orchestrateMatch = suffix.match(/^orchestrate\/([^/]+)\/transition$/);
+	if (orchestrateMatch && method === "POST") {
+		return stub.applyOrchestrateTransition(decodeURIComponent(orchestrateMatch[1]), c.req.raw);
+	}
+	if (suffix === "queue/take" && method === "POST") {
+		return stub.takeQueueItem(c.req.raw);
+	}
+
 	const target = new URL(c.req.url);
 	target.pathname = suffix ? `/${suffix}` : "/health";
 	return stub.fetch(new Request(target.toString(), c.req.raw));

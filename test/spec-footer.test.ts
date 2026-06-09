@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseSpecFooterFields } from "./spec-footer.ts";
-import { toSpecOrientView, normalizeSpecRecord } from "./spec.ts";
+import { parseSpecFooterFields } from "../src/spec-footer.ts";
+import { toSpecOrientView, normalizeSpecRecord } from "../src/spec.ts";
 
 describe("parseSpecFooterFields", () => {
 	it("extracts implementation status table fields", () => {

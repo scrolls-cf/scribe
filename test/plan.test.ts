@@ -7,7 +7,7 @@ import {
 	normalizePlanRecord,
 	planNextActionsAfterPatch,
 	stampPhaseCompletions,
-} from "./plan.ts";
+} from "../src/plan.ts";
 
 describe("splitPlanPhasesFromBody", () => {
 	it("splits ## Phase N headings", () => {

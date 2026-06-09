@@ -574,7 +574,16 @@ export class Scribe extends DurableObject {
 
 	private async loadSpecRecord(slug: string, stored: SpecRecord): Promise<SpecRecord> {
 		const record = await hydrateSpecRecord(this.ctx.storage, slug, stored);
-		if (stored.status === "in_progress" && !stored.lock && record.status === "ready") {
+		const staleInProgress =
+			stored.status === "in_progress" && !stored.lock && record.status === "ready";
+		if (!staleInProgress) return record;
+
+		const orphanLease = await this.ctx.storage.get<LeaseEntry>(
+			leaseStorageKey({ kind: "spec", slug }),
+		);
+		if (orphanLease) {
+			await this.releaseSpecLockRecord(slug, record);
+		} else {
 			await putSpecRecord(this.ctx.storage, record);
 		}
 		return record;
@@ -711,10 +720,15 @@ export class Scribe extends DurableObject {
 			"patch",
 		);
 		if (auditErr) return auditErr;
-		await putSpecRecord(this.ctx.storage, withRevisions);
 		if (nextStatus === "done" && record.lock) {
-			await removeLease(this.ctx.storage, { kind: "spec", slug });
-			await removeWorkspaceLease(this.ctx.storage, slug);
+			await this.ctx.storage.transaction(async (txn) => {
+				await putSpecRecord(txn, withRevisions);
+				await deleteLeaseEntry(txn, { kind: "spec", slug });
+				await removeWorkspaceLease(txn, slug);
+			});
+			await syncLeaseAlarm(this.ctx.storage);
+		} else {
+			await putSpecRecord(this.ctx.storage, withRevisions);
 		}
 		await this.fanOutSpecUpdated(withRevisions, "patchSpec");
 		return Response.json(
@@ -924,10 +938,20 @@ export class Scribe extends DurableObject {
 			body_changed: nextSpec.body !== spec.body,
 		};
 
+		const shipClearsSpecLease = req.event === "ship" && spec.lock;
+		const shipClearsPlanLease = req.event === "ship" && nextPlan?.lock;
+
 		await this.ctx.storage.transaction(async (txn) => {
 			await putSpecRecord(txn, nextSpec);
 			if (nextPlan) {
 				await txn.put(planKey(nextPlan.id), nextPlan);
+			}
+			if (shipClearsSpecLease) {
+				await deleteLeaseEntry(txn, { kind: "spec", slug });
+				await removeWorkspaceLease(txn, slug);
+			}
+			if (shipClearsPlanLease && nextPlan) {
+				await deleteLeaseEntry(txn, { kind: "plan", id: nextPlan.id });
 			}
 			if (req.transition_id) {
 				await txn.put(
@@ -937,12 +961,8 @@ export class Scribe extends DurableObject {
 			}
 		});
 
-		if (req.event === "ship" && spec.lock) {
-			await removeLease(this.ctx.storage, { kind: "spec", slug });
-			await removeWorkspaceLease(this.ctx.storage, slug);
-		}
-		if (req.event === "ship" && nextPlan?.lock) {
-			await removeLease(this.ctx.storage, { kind: "plan", id: nextPlan.id });
+		if (shipClearsSpecLease || shipClearsPlanLease) {
+			await syncLeaseAlarm(this.ctx.storage);
 		}
 
 		await this.fanOutSpecUpdated(nextSpec, "transition");
@@ -1071,30 +1091,45 @@ export class Scribe extends DurableObject {
 		return Response.json({ ok: true, spec: updated });
 	}
 
-	private async releaseSpecLockRecord(slug: string, spec: SpecRecord): Promise<void> {
+	private async releaseSpecLockRecord(
+		slug: string,
+		spec: SpecRecord,
+		opts?: { syncAlarm?: boolean },
+	): Promise<void> {
 		await this.ctx.storage.transaction(async (txn) => {
 			await putSpecRecord(txn, spec);
 			await deleteLeaseEntry(txn, { kind: "spec", slug });
 		});
-		await syncLeaseAlarm(this.ctx.storage);
+		if (opts?.syncAlarm !== false) {
+			await syncLeaseAlarm(this.ctx.storage);
+		}
 	}
 
 	private async releasePlanLockRecord(
 		id: string,
 		plan: PlanRecord,
 		target: LeaseTarget,
+		opts?: { syncAlarm?: boolean },
 	): Promise<void> {
 		await this.ctx.storage.transaction(async (txn) => {
 			await txn.put(planKey(id), plan);
 			await deleteLeaseEntry(txn, target);
 		});
-		await syncLeaseAlarm(this.ctx.storage);
+		if (opts?.syncAlarm !== false) {
+			await syncLeaseAlarm(this.ctx.storage);
+		}
 	}
 
-	private async persistSpecQueueTake(slug: string, spec: SpecRecord, lock: SpecLock): Promise<void> {
+	private async persistSpecQueueTake(
+		slug: string,
+		spec: SpecRecord,
+		lock: SpecLock,
+		workspace?: WorkspaceLease,
+	): Promise<void> {
 		await this.ctx.storage.transaction(async (txn) => {
 			await putSpecRecord(txn, spec);
 			await putLeaseEntry(txn, { kind: "spec", slug }, lock);
+			if (workspace) await upsertWorkspaceLease(txn, workspace);
 		});
 		await syncLeaseAlarm(this.ctx.storage);
 	}
@@ -1112,24 +1147,90 @@ export class Scribe extends DurableObject {
 		phaseId: string,
 		plan: PlanRecord,
 		lock: SpecLock,
+		workspace?: WorkspaceLease,
 	): Promise<void> {
 		await this.ctx.storage.transaction(async (txn) => {
 			await txn.put(planKey(planId), plan);
 			await putLeaseEntry(txn, { kind: "plan-phase", id: planId, phaseId }, lock);
+			if (workspace) await upsertWorkspaceLease(txn, workspace);
 		});
 		await syncLeaseAlarm(this.ctx.storage);
+	}
+
+	private async workspaceLeaseForQueueTake(
+		specSlug: string | undefined,
+		kind: "spec" | "plan",
+		lock: SpecLock,
+		platformRoot: string | undefined,
+		workspaceIsolation: boolean,
+	): Promise<{ upsert?: WorkspaceLease; response?: WorkspaceLease }> {
+		if (!workspaceIsolation || !platformRoot || !specSlug) return {};
+		const rootParsed = validatePlatformRoot(platformRoot);
+		if (!rootParsed.ok) return {};
+		const existing = await getWorkspaceLease(this.ctx.storage, specSlug);
+		if (existing && existing.agent_id !== lock.agent_id) {
+			return { response: existing };
+		}
+		const lease = computeWorkspaceManifest(specSlug, kind, rootParsed.value, lock);
+		return { upsert: lease, response: lease };
 	}
 
 	private async freshSpecForQueue(slug: string): Promise<SpecRecord | null> {
 		const stored = await this.ctx.storage.get<SpecRecord>(specKey(slug));
 		if (!stored) return null;
-		return hydrateSpecRecord(this.ctx.storage, slug, stored);
+		return this.loadSpecRecord(slug, stored);
+	}
+
+	private async loadPlanRecord(id: string, stored: PlanRecord): Promise<PlanRecord> {
+		let record = normalizePlanRecord(stored);
+
+		if (stored.status === "in_progress" && !stored.lock) {
+			const orphanPlanLease = await this.ctx.storage.get<LeaseEntry>(
+				leaseStorageKey({ kind: "plan", id }),
+			);
+			if (orphanPlanLease) {
+				record = {
+					...record,
+					status: "ready",
+					updated_at: new Date().toISOString(),
+				};
+				await this.releasePlanLockRecord(id, record, { kind: "plan", id });
+				return record;
+			}
+		}
+
+		for (const phase of record.phases) {
+			if (phase.lock) continue;
+			const orphanPhaseLease = await this.ctx.storage.get<LeaseEntry>(
+				leaseStorageKey({ kind: "plan-phase", id, phaseId: phase.id }),
+			);
+			if (!orphanPhaseLease) continue;
+
+			const now = new Date().toISOString();
+			const repaired: PlanRecord = {
+				...record,
+				phases: record.phases.map((p) =>
+					p.id === phase.id && p.status === "active"
+						? { ...p, status: "pending" as PlanPhase["status"] }
+						: p,
+				),
+				updated_at: now,
+			};
+			await this.releasePlanLockRecord(id, repaired, {
+				kind: "plan-phase",
+				id,
+				phaseId: phase.id,
+			});
+			return repaired;
+		}
+
+		return record;
 	}
 
 	private async freshPlanForQueue(id: string): Promise<PlanRecord | null> {
 		const stored = await this.ctx.storage.get<PlanRecord>(planKey(id));
 		if (!stored) return null;
-		return normalizePlanRecord(stored);
+		return this.loadPlanRecord(id, stored);
 	}
 
 	private async loadAllSpecs(includeDone: boolean): Promise<SpecRecord[]> {
@@ -1138,7 +1239,7 @@ export class Scribe extends DurableObject {
 		for (const slug of slugs) {
 			const stored = await this.ctx.storage.get<SpecRecord>(specKey(slug));
 			if (!stored) continue;
-			const record = await hydrateSpecRecord(this.ctx.storage, slug, stored);
+			const record = await this.loadSpecRecord(slug, stored);
 			if (!includeDone && record.status === "done") continue;
 			specs.push(record);
 		}
@@ -1151,7 +1252,7 @@ export class Scribe extends DurableObject {
 		for (const id of ids) {
 			const stored = await this.ctx.storage.get<PlanRecord>(planKey(id));
 			if (!stored) continue;
-			const record = normalizePlanRecord(stored);
+			const record = await this.loadPlanRecord(id, stored);
 			if (!includeDone && record.status === "done") continue;
 			plans.push(record);
 		}
@@ -1177,7 +1278,7 @@ export class Scribe extends DurableObject {
 		if (!stored) {
 			return Response.json({ ok: false, error: "plan not found" }, { status: 404 });
 		}
-		const plan = normalizePlanRecord(stored);
+		const plan = await this.loadPlanRecord(id, stored);
 		const summary = toPlanSummary(plan);
 		const revisions_summary = this.revisionsSummaryFor(
 			"plan",
@@ -1381,12 +1482,17 @@ export class Scribe extends DurableObject {
 			"patch",
 		);
 		if (auditErr) return auditErr;
-		await this.ctx.storage.put(planKey(id), withRevisions);
 		if (nextStatus === "done" && record.lock) {
-			await removeLease(this.ctx.storage, { kind: "plan", id });
-			if (record.spec_slug) {
-				await removeWorkspaceLease(this.ctx.storage, record.spec_slug);
-			}
+			await this.ctx.storage.transaction(async (txn) => {
+				await txn.put(planKey(id), withRevisions);
+				await deleteLeaseEntry(txn, { kind: "plan", id });
+				if (record.spec_slug) {
+					await removeWorkspaceLease(txn, record.spec_slug);
+				}
+			});
+			await syncLeaseAlarm(this.ctx.storage);
+		} else {
+			await this.ctx.storage.put(planKey(id), withRevisions);
 		}
 		await this.fanOutPlanUpdated(withRevisions);
 		return Response.json(
@@ -1544,19 +1650,21 @@ export class Scribe extends DurableObject {
 				);
 				if (lockRes.ok) {
 					const phase = lockRes.plan.phases.find((p) => p.id === freshPhase.id)!;
-					await this.persistPlanPhaseQueueTake(
-						freshPlan.id,
-						freshPhase.id,
-						lockRes.plan,
-						phase.lock!,
-					);
-					const workspace = await this.bindWorkspaceOnTake(
+					const workspaceCtx = await this.workspaceLeaseForQueueTake(
 						lockRes.plan.spec_slug,
 						"plan",
 						phase.lock!,
 						platform_root,
 						workspace_isolation,
 					);
+					await this.persistPlanPhaseQueueTake(
+						freshPlan.id,
+						freshPhase.id,
+						lockRes.plan,
+						phase.lock!,
+						workspaceCtx.upsert,
+					);
+					const workspace = workspaceCtx.response;
 					await this.fanOutLockChanged(
 						"plan-phase",
 						"acquire",
@@ -1600,17 +1708,23 @@ export class Scribe extends DurableObject {
 					takeSessionId,
 				);
 				if (lockRes.ok) {
-					await this.persistSpecQueueTake(freshSpec.slug, lockRes.spec, lockRes.spec.lock!);
-					const pending = freshSpec.phases.find(
-						(p) => p.status === "pending" || p.status === "active",
-					);
-					const workspace = await this.bindWorkspaceOnTake(
+					const workspaceCtx = await this.workspaceLeaseForQueueTake(
 						freshSpec.slug,
 						"spec",
 						lockRes.spec.lock!,
 						platform_root,
 						workspace_isolation,
 					);
+					await this.persistSpecQueueTake(
+						freshSpec.slug,
+						lockRes.spec,
+						lockRes.spec.lock!,
+						workspaceCtx.upsert,
+					);
+					const pending = freshSpec.phases.find(
+						(p) => p.status === "pending" || p.status === "active",
+					);
+					const workspace = workspaceCtx.response;
 					await this.fanOutLockChanged(
 						"spec",
 						"acquire",
@@ -1645,14 +1759,20 @@ export class Scribe extends DurableObject {
 				takeSessionId,
 			);
 			if (lockRes.ok) {
-				await this.persistSpecQueueTake(freshSpec.slug, lockRes.spec, lockRes.spec.lock!);
-				const workspace = await this.bindWorkspaceOnTake(
+				const workspaceCtx = await this.workspaceLeaseForQueueTake(
 					freshSpec.slug,
 					"spec",
 					lockRes.spec.lock!,
 					platform_root,
 					workspace_isolation,
 				);
+				await this.persistSpecQueueTake(
+					freshSpec.slug,
+					lockRes.spec,
+					lockRes.spec.lock!,
+					workspaceCtx.upsert,
+				);
+				const workspace = workspaceCtx.response;
 				await this.fanOutLockChanged(
 					"spec",
 					"acquire",
@@ -1892,7 +2012,7 @@ export class Scribe extends DurableObject {
 					updated_at: now,
 					etag: now,
 				};
-				await this.releaseSpecLockRecord(target.slug, updated);
+				await this.releaseSpecLockRecord(target.slug, updated, { syncAlarm: false });
 				await this.fanOutLockChanged("spec", "lease_alarm", null, target.slug);
 				if (updated.status !== record.status) {
 					await this.fanOutSpecUpdated(updated, "lease_alarm");
@@ -1913,7 +2033,9 @@ export class Scribe extends DurableObject {
 					status: record.status === "in_progress" ? "ready" : record.status,
 					updated_at: now,
 				};
-				await this.releasePlanLockRecord(target.id, updated, { kind: "plan", id: target.id });
+				await this.releasePlanLockRecord(target.id, updated, { kind: "plan", id: target.id }, {
+					syncAlarm: false,
+				});
 				await this.fanOutLockChanged("plan", "lease_alarm", null, record.spec_slug ?? "", target.id);
 				if (updated.status !== record.status) {
 					await this.fanOutPlanUpdated(updated);
@@ -1941,11 +2063,16 @@ export class Scribe extends DurableObject {
 					),
 					updated_at: now,
 				};
-				await this.releasePlanLockRecord(target.id, updated, {
-					kind: "plan-phase",
-					id: target.id,
-					phaseId: target.phaseId,
-				});
+				await this.releasePlanLockRecord(
+					target.id,
+					updated,
+					{
+						kind: "plan-phase",
+						id: target.id,
+						phaseId: target.phaseId,
+					},
+					{ syncAlarm: false },
+				);
 				await this.fanOutLockChanged(
 					"plan-phase",
 					"lease_alarm",

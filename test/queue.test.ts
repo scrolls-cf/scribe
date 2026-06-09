@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { rankQueueCandidates } from "./queue.ts";
-import type { PlanRecord } from "./plan.ts";
-import type { SpecRecord } from "./spec.ts";
+import { rankQueueCandidates } from "../src/queue.ts";
+import type { PlanRecord } from "../src/plan.ts";
+import type { SpecRecord } from "../src/spec.ts";
 
 const now = "2026-06-06T12:00:00.000Z";
 

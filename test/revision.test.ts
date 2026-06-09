@@ -13,7 +13,7 @@ import {
 	revisionStorageKey,
 	trimRevisionIndex,
 	type BodyRevision,
-} from "./revision.ts";
+} from "../src/revision.ts";
 
 class MockStorage {
 	#data = new Map<string, unknown>();

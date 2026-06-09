@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseMatrixManifest, parseServiceRegistration } from "./service-registry.ts";
+import { parseMatrixManifest, parseServiceRegistration } from "../src/service-registry.ts";
 
 describe("service registry", () => {
 	it("parses matrix manifest", () => {

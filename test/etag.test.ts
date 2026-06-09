@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { etagConflict, normalizeEtagToken, recordEtag } from "./etag.ts";
+import { etagConflict, normalizeEtagToken, recordEtag } from "../src/etag.ts";
 
 describe("etag", () => {
 	it("recordEtag uses updated_at", () => {

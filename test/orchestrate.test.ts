@@ -11,9 +11,9 @@ import {
 	isReviewGatePending,
 	OrchestratePreconditionError,
 	parseOrchestrateRequest,
-} from "./orchestrate.ts";
-import type { PlanRecord } from "./plan.ts";
-import type { SpecRecord } from "./spec.ts";
+} from "../src/orchestrate.ts";
+import type { PlanRecord } from "../src/plan.ts";
+import type { SpecRecord } from "../src/spec.ts";
 
 function baseSpec(overrides: Partial<SpecRecord> = {}): SpecRecord {
 	const now = new Date().toISOString();

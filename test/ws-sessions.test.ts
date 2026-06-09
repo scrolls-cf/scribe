@@ -6,7 +6,7 @@ import {
 	eventMatchesFilters,
 	replaySince,
 	type StoredRingEntry,
-} from "./ws-sessions.ts";
+} from "../src/ws-sessions.ts";
 
 class MockStorage {
 	#data = new Map<string, unknown>();

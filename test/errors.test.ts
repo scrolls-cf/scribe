@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseCreateErrorInput } from "./errors.ts";
+import { parseCreateErrorInput } from "../src/errors.ts";
 
 describe("parseCreateErrorInput", () => {
 	it("accepts a valid error payload", () => {

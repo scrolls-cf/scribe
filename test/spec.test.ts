@@ -11,8 +11,8 @@ import {
 	toSpecSummary,
 	shouldDefaultOrchestratorBlocked,
 	isGrandfatheredOrchestratorRegister,
-} from "./spec.ts";
-import { parseSpecFooterFields } from "./spec-footer.ts";
+} from "../src/spec.ts";
+import { parseSpecFooterFields } from "../src/spec-footer.ts";
 
 describe("parseSaveSpecInput", () => {
 	it("accepts a valid spec payload", () => {
@@ -341,7 +341,7 @@ describe("linkSpecPlanId", () => {
 
 describe("reconcilePlanReview", () => {
 	it("prefers footer passed over stale DO required", async () => {
-		const { reconcilePlanReview } = await import("./spec.ts");
+		const { reconcilePlanReview } = await import("../src/spec.ts");
 		assert.equal(reconcilePlanReview("required", "passed"), "passed");
 		assert.equal(reconcilePlanReview("required", "required"), "required");
 		assert.equal(reconcilePlanReview(null, "passed"), "passed");
