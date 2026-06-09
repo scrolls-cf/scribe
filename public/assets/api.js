@@ -591,3 +591,109 @@ export async function fetchPlanRevision(id, revisionId) {
   return data.revision;
 }
 
+/** Opt-in live board refresh (`?live=1`). */
+export function boardLiveEnabled() {
+  return new URLSearchParams(window.location.search).get("live") === "1";
+}
+
+/**
+ * WebSocket URL for scribe project events (browser cookie Access on same origin).
+ * @param {string[]} [filters] e.g. `spec:ged-a`, `plan:ged-a-plan`
+ */
+export function eventsWebSocketUrl(filters = []) {
+  const httpPath = apiPath("events");
+  const url = new URL(httpPath, window.location.origin);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  for (const filter of filters) {
+    if (filter) url.searchParams.append("filter", filter);
+  }
+  return url.toString();
+}
+
+/**
+ * Subscribe to scribe WS events. Returns abort/dispose function.
+ * @param {{ filters?: string[], onEvent?: (event: object) => void, onError?: (err: unknown) => void, signal?: AbortSignal }} [opts]
+ */
+export function scribeSubscribe(opts = {}) {
+  const { filters = [], onEvent, onError, signal } = opts;
+  /** @type {WebSocket | null} */
+  let ws = null;
+  /** @type {ReturnType<typeof setInterval> | null} */
+  let pingTimer = null;
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let reconnectTimer = null;
+  let backoffMs = 1000;
+  const seen = new Set();
+
+  const dispatch = (frame) => {
+    if (!frame || typeof frame !== "object") return;
+    const id = frame.event_id;
+    if (typeof id === "string" && id) {
+      if (seen.has(id)) return;
+      seen.add(id);
+      if (seen.size > 512) seen.clear();
+    }
+    onEvent?.(frame);
+  };
+
+  const connect = () => {
+    if (signal?.aborted) return;
+    try {
+      ws = new WebSocket(eventsWebSocketUrl(filters));
+    } catch (err) {
+      onError?.(err);
+      return;
+    }
+    ws.addEventListener("open", () => {
+      backoffMs = 1000;
+      pingTimer = setInterval(() => {
+        try {
+          ws?.send(JSON.stringify({ type: "ping" }));
+        } catch {
+          /* ignore */
+        }
+      }, 30_000);
+    });
+    ws.addEventListener("message", (ev) => {
+      let frame;
+      try {
+        frame = JSON.parse(String(ev.data));
+      } catch {
+        return;
+      }
+      if (frame.type === "connected" && Array.isArray(frame.replay)) {
+        for (const replayed of frame.replay) dispatch(replayed);
+      }
+      dispatch(frame);
+    });
+    ws.addEventListener("error", (ev) => onError?.(ev));
+    ws.addEventListener("close", () => {
+      if (pingTimer) clearInterval(pingTimer);
+      pingTimer = null;
+      ws = null;
+      if (signal?.aborted) return;
+      reconnectTimer = setTimeout(() => {
+        backoffMs = Math.min(backoffMs * 2, 30_000);
+        connect();
+      }, backoffMs);
+    });
+  };
+
+  const stop = () => {
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    if (pingTimer) clearInterval(pingTimer);
+    pingTimer = null;
+    try {
+      ws?.close();
+    } catch {
+      /* ignore */
+    }
+    ws = null;
+  };
+
+  signal?.addEventListener("abort", stop, { once: true });
+  connect();
+  return stop;
+}
+

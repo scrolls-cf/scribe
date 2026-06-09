@@ -29,7 +29,10 @@ import {
   specOrchestrationLabels,
   specReviewLoopActive,
   workUnitCount,
+  boardLiveEnabled,
+  scribeSubscribe,
 } from "./api.js";
+import { applyBoardLiveEvent } from "./board-live.js";
 import {
   pulseIterationChip,
   setDetailPollEtag,
@@ -96,6 +99,12 @@ let boardPane =
   sessionStorage.getItem(BOARD_PANE_KEY) === BOARD_PANE_COMPLETED
     ? BOARD_PANE_COMPLETED
     : BOARD_PANE_ACTIVE;
+
+/** @type {(() => void) | null} */
+let stopBoardLive = null;
+/** @type {ReturnType<typeof setInterval> | null} */
+let boardLiveFallbackTimer = null;
+const BOARD_LIVE_FALLBACK_MS = 60_000;
 
 function isMobileDetail() {
   return window.matchMedia("(max-width: 768px)").matches;
@@ -221,11 +230,13 @@ function switchBoardPane(pane) {
   boardPane = pane;
   sessionStorage.setItem(BOARD_PANE_KEY, pane);
   hideBoardError();
+  if (pane === BOARD_PANE_COMPLETED) stopBoardLiveRefresh();
   if (pane === BOARD_PANE_COMPLETED && !completedLoaded) {
     loadCompletedBoard();
     return;
   }
   renderCurrentBoard();
+  if (pane === BOARD_PANE_ACTIVE) startBoardLiveRefresh();
 }
 
 function renderCurrentBoard() {
@@ -481,6 +492,67 @@ function upsertCachedSpec(spec) {
 function upsertCachedPlan(plan) {
   const idx = cachedPlans.findIndex((p) => p.id === plan.id);
   if (idx >= 0) cachedPlans[idx] = { ...cachedPlans[idx], ...plan };
+}
+
+function stopBoardLiveRefresh() {
+  stopBoardLive?.();
+  stopBoardLive = null;
+  if (boardLiveFallbackTimer) clearInterval(boardLiveFallbackTimer);
+  boardLiveFallbackTimer = null;
+}
+
+async function refreshOpenDetailFromLive(event) {
+  if (event.type === "spec_updated" && activeSlug === event.spec?.slug) {
+    await refreshSpecDetailQuiet(activeSlug, { pulse: true });
+    return;
+  }
+  if (event.type === "plan_updated" && activePlanId === event.plan?.id) {
+    await refreshPlanDetailQuiet(activePlanId, { pulse: true });
+    return;
+  }
+  if (event.type === "lock_changed") {
+    if (activeSlug && event.spec_slug === activeSlug) {
+      await refreshSpecDetailQuiet(activeSlug, { pulse: true });
+    } else if (activePlanId && event.plan_id === activePlanId) {
+      await refreshPlanDetailQuiet(activePlanId, { pulse: true });
+    }
+  }
+}
+
+function startBoardLiveRefresh() {
+  stopBoardLiveRefresh();
+  if (!boardLiveEnabled() || isCompletedPane()) return;
+
+  stopBoardLive = scribeSubscribe({
+    onEvent: async (event) => {
+      if (event.type === "connected" || event.type === "pong") return;
+      const changed = applyBoardLiveEvent(cachedSpecs, cachedPlans, event);
+      if (!changed) return;
+      renderCurrentBoard();
+      await refreshOpenDetailFromLive(event);
+    },
+  });
+
+  boardLiveFallbackTimer = setInterval(() => {
+    if (!boardLiveEnabled() || isCompletedPane()) return;
+    refreshBoardQuiet();
+  }, BOARD_LIVE_FALLBACK_MS);
+}
+
+async function refreshBoardQuiet() {
+  try {
+    const [specData, planData, workspaceData] = await Promise.all([
+      apiFetch("specs"),
+      apiFetch("plans?all=true"),
+      apiFetch("workspaces").catch(() => ({ workspaces: [] })),
+    ]);
+    const specs = specData.specs || [];
+    const plans = mergePlansForActiveSpecs(planData.plans || [], specs);
+    cachedWorkspaces = new Map((workspaceData.workspaces || []).map((ws) => [ws.id, ws]));
+    renderBoard(specs, plans, { pane: BOARD_PANE_ACTIVE });
+  } catch {
+    /* silent reconcile */
+  }
 }
 
 async function loadSpecDiff(slug, spec) {
@@ -1042,6 +1114,7 @@ async function loadBoard() {
       await loadCompletedBoard();
     } else {
       renderBoard(specs, plans, { pane: BOARD_PANE_ACTIVE });
+      startBoardLiveRefresh();
     }
   } catch (e) {
     setLoading(workLoading, false);
