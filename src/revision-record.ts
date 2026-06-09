@@ -329,17 +329,42 @@ function rowToRevisionRecord(row: RevisionRow): RevisionRecord {
 	};
 }
 
-let schemaReady = false;
+const REVISION_SCHEMA_VERSION = 1;
+
+function readRevisionSchemaVersion(sql: RevisionSql): number {
+	try {
+		return sql.exec<{ user_version: number }>("PRAGMA user_version").one().user_version;
+	} catch {
+		const tables = sql
+			.exec<{ name: string }>(
+				"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'revisions'",
+			)
+			.toArray();
+		return tables.length > 0 ? REVISION_SCHEMA_VERSION : 0;
+	}
+}
+
+function writeRevisionSchemaVersion(sql: RevisionSql, version: number): void {
+	try {
+		sql.exec(`PRAGMA user_version = ${version}`);
+	} catch {
+		/* test shims without PRAGMA writes — table presence is the guard */
+	}
+}
 
 /** Idempotent SQLite migration — safe in DO constructor or first write. */
 export function initRevisionSchema(sql: RevisionSql): void {
-	if (schemaReady) return;
-	sql.exec(REVISIONS_TABLE_SQL);
-	schemaReady = true;
+	const version = readRevisionSchemaVersion(sql);
+	if (version >= REVISION_SCHEMA_VERSION) return;
+	if (version < 1) {
+		sql.exec(REVISIONS_TABLE_SQL);
+		writeRevisionSchemaVersion(sql, 1);
+	}
 }
 
+/** @deprecated Tests use fresh in-memory DBs; kept for hook compatibility. */
 export function resetRevisionSchemaForTests(): void {
-	schemaReady = false;
+	/* PRAGMA user_version is per-database; no module-global state. */
 }
 
 export function insertRevisionRecord(sql: RevisionSql, record: RevisionRecord): void {

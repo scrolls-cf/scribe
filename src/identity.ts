@@ -65,3 +65,25 @@ export function holderLabel(lock: { agent_id: string; holder_kind?: HolderKind }
 	if (lock.holder_kind === "user") return lock.agent_id;
 	return lock.agent_id;
 }
+
+/**
+ * True when an existing lock is bound to a different ged/Cursor session.
+ * Board renews (no incoming session_id) never conflict.
+ */
+export function sessionLockConflict(
+	existing: { session_id?: string } | null | undefined,
+	incomingSessionId: string | undefined,
+): boolean {
+	if (!existing?.session_id) return false;
+	if (!incomingSessionId) return false;
+	return existing.session_id !== incomingSessionId;
+}
+
+/** Session id to store on acquire — adopt incoming or keep existing on renew. */
+export function resolveLockSessionId(
+	existing: { session_id?: string } | null | undefined,
+	incomingSessionId: string | undefined,
+): string | undefined {
+	if (incomingSessionId) return incomingSessionId;
+	return existing?.session_id;
+}

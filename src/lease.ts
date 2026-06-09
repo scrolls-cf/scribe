@@ -67,6 +67,7 @@ export function lockWithLease(
 	acquiredAt: string,
 	leaseSeconds: number,
 	activity?: string,
+	sessionId?: string,
 ): SpecLock {
 	const acquiredMs = new Date(acquiredAt).getTime();
 	const expiresAt = new Date(acquiredMs + leaseSeconds * 1000).toISOString();
@@ -77,6 +78,7 @@ export function lockWithLease(
 		lease_seconds: leaseSeconds,
 		expires_at: expiresAt,
 		...(activity ? { activity } : {}),
+		...(sessionId ? { session_id: sessionId } : {}),
 	};
 }
 
@@ -96,8 +98,11 @@ export async function listLeaseEntries(
 	return [...listed.values()];
 }
 
-export async function upsertLease(
-	storage: DurableObjectStorage,
+type LeaseStorageWriter = Pick<DurableObjectStorage, "put">;
+
+/** Persist lease index entry only — pair with syncLeaseAlarm after transactions commit. */
+export async function putLeaseEntry(
+	storage: LeaseStorageWriter,
 	target: LeaseTarget,
 	lock: SpecLock,
 ): Promise<void> {
@@ -110,6 +115,14 @@ export async function upsertLease(
 		holder_kind: lock.holder_kind ?? "agent",
 	};
 	await storage.put(leaseStorageKey(target), entry);
+}
+
+export async function upsertLease(
+	storage: DurableObjectStorage,
+	target: LeaseTarget,
+	lock: SpecLock,
+): Promise<void> {
+	await putLeaseEntry(storage, target, lock);
 	await syncLeaseAlarm(storage);
 }
 

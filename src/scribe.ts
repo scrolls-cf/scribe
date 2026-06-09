@@ -13,13 +13,20 @@ import {
 	serviceRegistryKey,
 	type ServiceRegistration,
 } from "./service-registry";
-import { resolveLockHolder, sameLockPrincipal, type LockHolder } from "./identity.ts";
+import {
+	resolveLockHolder,
+	resolveLockSessionId,
+	sameLockPrincipal,
+	sessionLockConflict,
+	type LockHolder,
+} from "./identity.ts";
 import {
 	dueLeaseEntries,
 	leaseStorageKey,
 	listLeaseEntries,
 	lockWithLease,
 	parseLeaseSeconds,
+	putLeaseEntry,
 	removeLease,
 	syncLeaseAlarm,
 	upsertLease,
@@ -40,7 +47,11 @@ import {
 	type PlanPhase,
 	type PlanRecord,
 } from "./plan.ts";
-import { parseOptionalLockBody, resolveLockActivity } from "./spec.ts";
+import {
+	parseOptionalLockBody,
+	parseOptionalSessionId,
+	resolveLockActivity,
+} from "./spec.ts";
 import {
 	parseTakeInput,
 	rankQueueCandidates,
@@ -83,6 +94,7 @@ import {
 import {
 	appendRevisionRecordIfNeeded,
 	getRevisionRecord,
+	initRevisionSchema,
 	listRevisionRecords,
 	loadRevisionsSummary,
 	parseRevisionAppendInput,
@@ -125,6 +137,14 @@ import {
 const SCRIBE_PROJECT = "ged";
 
 export class Scribe extends DurableObject {
+	constructor(ctx: DurableObjectState, env: Env) {
+		super(ctx, env);
+		ctx.blockConcurrencyWhile(async () => {
+			initRevisionSchema(this.revisionSql());
+			await syncLeaseAlarm(this.ctx.storage);
+		});
+	}
+
 	private revisionSql(): RevisionSql {
 		return this.ctx.storage.sql as unknown as RevisionSql;
 	}
@@ -292,7 +312,7 @@ export class Scribe extends DurableObject {
 
 		const orchestrateMatch = url.pathname.match(/^\/orchestrate\/([^/]+)\/transition$/);
 		if (orchestrateMatch && request.method === "POST") {
-			return this.orchestrateTransition(decodeURIComponent(orchestrateMatch[1]), request);
+			return this.applyOrchestrateTransition(decodeURIComponent(orchestrateMatch[1]), request);
 		}
 
 		const specPatchMatch = url.pathname.match(/^\/specs\/([^/]+)$/);
@@ -347,7 +367,7 @@ export class Scribe extends DurableObject {
 		}
 
 		if (url.pathname === "/queue/take" && request.method === "POST") {
-			return this.takeFromQueue(request);
+			return this.takeQueueItem(request);
 		}
 
 		if (url.pathname === "/workspaces" && request.method === "GET") {
@@ -702,7 +722,8 @@ export class Scribe extends DurableObject {
 		);
 	}
 
-	private async orchestrateTransition(slug: string, request: Request): Promise<Response> {
+	/** DO RPC — apply orchestrator transition; HTTP fetch delegates here. */
+	async applyOrchestrateTransition(slug: string, request: Request): Promise<Response> {
 		let raw: unknown;
 		try {
 			raw = await request.json();
@@ -894,18 +915,6 @@ export class Scribe extends DurableObject {
 			throw err;
 		}
 
-		await putSpecRecord(this.ctx.storage, nextSpec);
-		if (nextPlan) {
-			await this.ctx.storage.put(planKey(nextPlan.id), nextPlan);
-		}
-		if (req.event === "ship" && spec.lock) {
-			await removeLease(this.ctx.storage, { kind: "spec", slug });
-			await removeWorkspaceLease(this.ctx.storage, slug);
-		}
-		if (req.event === "ship" && nextPlan?.lock) {
-			await removeLease(this.ctx.storage, { kind: "plan", id: nextPlan.id });
-		}
-
 		const responseBody = {
 			ok: true,
 			event: req.event,
@@ -914,11 +923,25 @@ export class Scribe extends DurableObject {
 			body_changed: nextSpec.body !== spec.body,
 		};
 
-		if (req.transition_id) {
-			await this.ctx.storage.put(
-				`${TRANSITION_CACHE_PREFIX}${req.transition_id}`,
-				JSON.stringify(responseBody),
-			);
+		await this.ctx.storage.transaction(async (txn) => {
+			await putSpecRecord(txn, nextSpec);
+			if (nextPlan) {
+				await txn.put(planKey(nextPlan.id), nextPlan);
+			}
+			if (req.transition_id) {
+				await txn.put(
+					`${TRANSITION_CACHE_PREFIX}${req.transition_id}`,
+					JSON.stringify(responseBody),
+				);
+			}
+		});
+
+		if (req.event === "ship" && spec.lock) {
+			await removeLease(this.ctx.storage, { kind: "spec", slug });
+			await removeWorkspaceLease(this.ctx.storage, slug);
+		}
+		if (req.event === "ship" && nextPlan?.lock) {
+			await removeLease(this.ctx.storage, { kind: "plan", id: nextPlan.id });
 		}
 
 		await this.fanOutSpecUpdated(nextSpec, "transition");
@@ -977,9 +1000,16 @@ export class Scribe extends DurableObject {
 			return Response.json({ ok: false, error: "identity or agent_id required" }, { status: 400 });
 		}
 
+		const sessionId = parseOptionalSessionId(raw);
 		if (record.lock && !sameLockPrincipal(holder, record.lock, request)) {
 			return Response.json(
 				{ ok: false, error: "lock held", lock: record.lock },
+				{ status: 409 },
+			);
+		}
+		if (record.lock && sessionLockConflict(record.lock, sessionId)) {
+			return Response.json(
+				{ ok: false, error: "lock held by another session", lock: record.lock },
 				{ status: 409 },
 			);
 		}
@@ -991,14 +1021,14 @@ export class Scribe extends DurableObject {
 
 		const now = new Date().toISOString();
 		const activity = resolveLockActivity(raw, record.lock);
+		const lockSessionId = resolveLockSessionId(record.lock, sessionId);
 		const updated: SpecRecord = {
 			...record,
-			lock: lockWithLease(holder, now, leaseParsed.value, activity),
+			lock: lockWithLease(holder, now, leaseParsed.value, activity, lockSessionId),
 			updated_at: now,
 			etag: now,
 		};
-		await putSpecRecord(this.ctx.storage, updated);
-		await upsertLease(this.ctx.storage, { kind: "spec", slug }, updated.lock!);
+		await this.persistSpecQueueTake(slug, updated, updated.lock!);
 		await this.fanOutLockChanged("spec", "acquire", updated.lock!, slug);
 		return Response.json({ ok: true, spec: normalizeSpecRecord(updated) });
 	}
@@ -1039,6 +1069,47 @@ export class Scribe extends DurableObject {
 		await removeWorkspaceLease(this.ctx.storage, slug);
 		await this.fanOutLockChanged("spec", "release", null, slug);
 		return Response.json({ ok: true, spec: updated });
+	}
+
+	private async persistSpecQueueTake(slug: string, spec: SpecRecord, lock: SpecLock): Promise<void> {
+		await this.ctx.storage.transaction(async (txn) => {
+			await putSpecRecord(txn, spec);
+			await putLeaseEntry(txn, { kind: "spec", slug }, lock);
+		});
+		await syncLeaseAlarm(this.ctx.storage);
+	}
+
+	private async persistPlanLockAcquire(id: string, plan: PlanRecord, lock: SpecLock): Promise<void> {
+		await this.ctx.storage.transaction(async (txn) => {
+			await txn.put(planKey(id), plan);
+			await putLeaseEntry(txn, { kind: "plan", id }, lock);
+		});
+		await syncLeaseAlarm(this.ctx.storage);
+	}
+
+	private async persistPlanPhaseQueueTake(
+		planId: string,
+		phaseId: string,
+		plan: PlanRecord,
+		lock: SpecLock,
+	): Promise<void> {
+		await this.ctx.storage.transaction(async (txn) => {
+			await txn.put(planKey(planId), plan);
+			await putLeaseEntry(txn, { kind: "plan-phase", id: planId, phaseId }, lock);
+		});
+		await syncLeaseAlarm(this.ctx.storage);
+	}
+
+	private async freshSpecForQueue(slug: string): Promise<SpecRecord | null> {
+		const stored = await this.ctx.storage.get<SpecRecord>(specKey(slug));
+		if (!stored) return null;
+		return hydrateSpecRecord(this.ctx.storage, slug, stored);
+	}
+
+	private async freshPlanForQueue(id: string): Promise<PlanRecord | null> {
+		const stored = await this.ctx.storage.get<PlanRecord>(planKey(id));
+		if (!stored) return null;
+		return normalizePlanRecord(stored);
 	}
 
 	private async loadAllSpecs(includeDone: boolean): Promise<SpecRecord[]> {
@@ -1323,9 +1394,16 @@ export class Scribe extends DurableObject {
 			return Response.json({ ok: false, error: "identity or agent_id required" }, { status: 400 });
 		}
 
+		const sessionId = parseOptionalSessionId(raw);
 		if (record.lock && !sameLockPrincipal(holder, record.lock, request)) {
 			return Response.json(
 				{ ok: false, error: "lock held", lock: record.lock },
+				{ status: 409 },
+			);
+		}
+		if (record.lock && sessionLockConflict(record.lock, sessionId)) {
+			return Response.json(
+				{ ok: false, error: "lock held by another session", lock: record.lock },
 				{ status: 409 },
 			);
 		}
@@ -1337,15 +1415,15 @@ export class Scribe extends DurableObject {
 
 		const now = new Date().toISOString();
 		const activity = resolveLockActivity(raw, record.lock);
-		const lock = lockWithLease(holder, now, leaseParsed.value, activity);
+		const lockSessionId = resolveLockSessionId(record.lock, sessionId);
+		const lock = lockWithLease(holder, now, leaseParsed.value, activity, lockSessionId);
 		const updated: PlanRecord = {
 			...record,
 			lock,
 			status: record.status === "ready" ? "in_progress" : record.status,
 			updated_at: now,
 		};
-		await this.ctx.storage.put(planKey(id), updated);
-		await upsertLease(this.ctx.storage, { kind: "plan", id }, lock);
+		await this.persistPlanLockAcquire(id, updated, lock);
 		await this.fanOutLockChanged("plan", "acquire", lock, record.spec_slug ?? "", id);
 		return Response.json({ ok: true, plan: updated });
 	}
@@ -1388,7 +1466,8 @@ export class Scribe extends DurableObject {
 		return Response.json({ ok: true, plan: updated });
 	}
 
-	private async takeFromQueue(request: Request): Promise<Response> {
+	/** DO RPC — take next queue item with lock; HTTP fetch delegates here. */
+	async takeQueueItem(request: Request): Promise<Response> {
 		let raw: unknown;
 		try {
 			raw = await request.json();
@@ -1413,7 +1492,8 @@ export class Scribe extends DurableObject {
 			return Response.json({ ok: false, error: leaseParsed.error }, { status: 400 });
 		}
 		const leaseSeconds = leaseParsed.value;
-		const { exclude, kind, platform_root, workspace_isolation } = parsed.value;
+		const { exclude, kind, platform_root, workspace_isolation, session_id: takeSessionId } =
+			parsed.value;
 		if (workspace_isolation) {
 			const rootParsed = validatePlatformRoot(platform_root);
 			if (!rootParsed.ok) {
@@ -1430,22 +1510,27 @@ export class Scribe extends DurableObject {
 
 		for (const candidate of ranked) {
 			if (candidate.kind === "phase") {
+				const freshPlan = await this.freshPlanForQueue(candidate.record.id);
+				if (!freshPlan) continue;
+				const freshPhase = freshPlan.phases.find((p) => p.id === candidate.phase.id);
+				if (!freshPhase) continue;
 				const lockRes = this.acquirePlanPhaseLockInternal(
 					holder,
-					candidate.record,
-					candidate.phase.id,
+					freshPlan,
+					freshPhase.id,
 					leaseSeconds,
 					undefined,
 					request,
+					takeSessionId,
 				);
 				if (lockRes.ok) {
-					await this.ctx.storage.put(planKey(candidate.record.id), lockRes.plan);
-					await upsertLease(
-						this.ctx.storage,
-						{ kind: "plan-phase", id: candidate.record.id, phaseId: candidate.phase.id },
-						lockRes.plan.phases.find((p) => p.id === candidate.phase.id)!.lock!,
+					const phase = lockRes.plan.phases.find((p) => p.id === freshPhase.id)!;
+					await this.persistPlanPhaseQueueTake(
+						freshPlan.id,
+						freshPhase.id,
+						lockRes.plan,
+						phase.lock!,
 					);
-					const phase = lockRes.plan.phases.find((p) => p.id === candidate.phase.id)!;
 					const workspace = await this.bindWorkspaceOnTake(
 						lockRes.plan.spec_slug,
 						"plan",
@@ -1485,25 +1570,23 @@ export class Scribe extends DurableObject {
 			}
 
 			if (candidate.kind === "phase_bridge") {
+				const freshSpec = await this.freshSpecForQueue(candidate.record.slug);
+				if (!freshSpec) continue;
 				const lockRes = this.acquireSpecLockInternal(
 					holder,
-					candidate.record,
+					freshSpec,
 					leaseSeconds,
 					undefined,
 					request,
+					takeSessionId,
 				);
 				if (lockRes.ok) {
-					await putSpecRecord(this.ctx.storage, lockRes.spec);
-					await upsertLease(
-						this.ctx.storage,
-						{ kind: "spec", slug: candidate.record.slug },
-						lockRes.spec.lock!,
-					);
-					const pending = candidate.record.phases.find(
+					await this.persistSpecQueueTake(freshSpec.slug, lockRes.spec, lockRes.spec.lock!);
+					const pending = freshSpec.phases.find(
 						(p) => p.status === "pending" || p.status === "active",
 					);
 					const workspace = await this.bindWorkspaceOnTake(
-						candidate.record.slug,
+						freshSpec.slug,
 						"spec",
 						lockRes.spec.lock!,
 						platform_root,
@@ -1513,15 +1596,15 @@ export class Scribe extends DurableObject {
 						"spec",
 						"acquire",
 						lockRes.spec.lock!,
-						candidate.record.slug,
+						freshSpec.slug,
 					);
 					return this.respondQueueTake(holder, {
 						ok: true,
 						kind: "phase_bridge",
 						completion_ratio: candidate.completion_ratio,
-						spec_slug: candidate.record.slug,
+						spec_slug: freshSpec.slug,
 						phase_id: pending?.id ?? null,
-						phase_name: pending?.title ?? candidate.record.active_phase,
+						phase_name: pending?.title ?? freshSpec.active_phase,
 						spec: toSpecSummary(lockRes.spec),
 						...(workspace ? { workspace } : {}),
 					});
@@ -1532,22 +1615,20 @@ export class Scribe extends DurableObject {
 				continue;
 			}
 
+			const freshSpec = await this.freshSpecForQueue(candidate.record.slug);
+			if (!freshSpec) continue;
 			const lockRes = this.acquireSpecLockInternal(
 				holder,
-				candidate.record,
+				freshSpec,
 				leaseSeconds,
 				undefined,
 				request,
+				takeSessionId,
 			);
 			if (lockRes.ok) {
-				await putSpecRecord(this.ctx.storage, lockRes.spec);
-				await upsertLease(
-					this.ctx.storage,
-					{ kind: "spec", slug: candidate.record.slug },
-					lockRes.spec.lock!,
-				);
+				await this.persistSpecQueueTake(freshSpec.slug, lockRes.spec, lockRes.spec.lock!);
 				const workspace = await this.bindWorkspaceOnTake(
-					candidate.record.slug,
+					freshSpec.slug,
 					"spec",
 					lockRes.spec.lock!,
 					platform_root,
@@ -1557,13 +1638,13 @@ export class Scribe extends DurableObject {
 					"spec",
 					"acquire",
 					lockRes.spec.lock!,
-					candidate.record.slug,
+					freshSpec.slug,
 				);
 				return this.respondQueueTake(holder, {
 					ok: true,
 					kind: "spec",
 					completion_ratio: candidate.completion_ratio,
-					spec_slug: candidate.record.slug,
+					spec_slug: freshSpec.slug,
 					spec: toSpecSummary(lockRes.spec),
 					...(workspace ? { workspace } : {}),
 				});
@@ -1582,15 +1663,20 @@ export class Scribe extends DurableObject {
 		leaseSeconds: number,
 		activity?: string,
 		request?: Request,
+		sessionId?: string,
 	): { ok: true; spec: SpecRecord } | { ok: false; error: string; status: number } {
 		if (record.lock && !sameLockPrincipal(holder, record.lock, request)) {
 			return { ok: false, error: "lock held", status: 409 };
 		}
+		if (record.lock && sessionLockConflict(record.lock, sessionId)) {
+			return { ok: false, error: "lock held by another session", status: 409 };
+		}
 		const now = new Date().toISOString();
 		const lockActivity = activity ?? record.lock?.activity;
+		const lockSessionId = resolveLockSessionId(record.lock, sessionId);
 		const updated: SpecRecord = {
 			...record,
-			lock: lockWithLease(holder, now, leaseSeconds, lockActivity),
+			lock: lockWithLease(holder, now, leaseSeconds, lockActivity, lockSessionId),
 			updated_at: now,
 			etag: now,
 		};
@@ -1604,19 +1690,27 @@ export class Scribe extends DurableObject {
 		leaseSeconds: number,
 		activity?: string,
 		request?: Request,
+		sessionId?: string,
 	): { ok: true; plan: PlanRecord } | { ok: false; error: string; status: number } {
-		const pickable = nextPickablePhase(record);
-		if (!pickable || pickable.id !== phaseId) {
-			return { ok: false, error: "phase not available", status: 409 };
-		}
 		const phase = record.phases.find((p) => p.id === phaseId);
 		if (!phase) return { ok: false, error: "phase not found", status: 404 };
-		if (phase.lock && !sameLockPrincipal(holder, phase.lock, request)) {
-			return { ok: false, error: "lock held", status: 409 };
+		if (phase.lock) {
+			if (!sameLockPrincipal(holder, phase.lock, request)) {
+				return { ok: false, error: "lock held", status: 409 };
+			}
+			if (sessionLockConflict(phase.lock, sessionId)) {
+				return { ok: false, error: "lock held by another session", status: 409 };
+			}
+		} else {
+			const pickable = nextPickablePhase(record);
+			if (!pickable || pickable.id !== phaseId) {
+				return { ok: false, error: "phase not available", status: 409 };
+			}
 		}
 		const now = new Date().toISOString();
 		const lockActivity = activity ?? phase.lock?.activity;
-		const phaseLock = lockWithLease(holder, now, leaseSeconds, lockActivity);
+		const lockSessionId = resolveLockSessionId(phase.lock, sessionId);
+		const phaseLock = lockWithLease(holder, now, leaseSeconds, lockActivity, lockSessionId);
 		const phases = record.phases.map((p) =>
 			p.id === phaseId
 				? {
@@ -1664,6 +1758,7 @@ export class Scribe extends DurableObject {
 			return Response.json({ ok: false, error: leaseParsed.error }, { status: 400 });
 		}
 
+		const sessionId = parseOptionalSessionId(raw);
 		const activity = resolveLockActivity(
 			raw,
 			record.phases.find((p) => p.id === phaseId)?.lock ?? null,
@@ -1675,17 +1770,13 @@ export class Scribe extends DurableObject {
 			leaseParsed.value,
 			activity,
 			request,
+			sessionId,
 		);
 		if (!lockRes.ok) {
 			return Response.json({ ok: false, error: lockRes.error }, { status: lockRes.status });
 		}
-		await this.ctx.storage.put(planKey(id), lockRes.plan);
 		const phase = lockRes.plan.phases.find((p) => p.id === phaseId)!;
-		await upsertLease(
-			this.ctx.storage,
-			{ kind: "plan-phase", id, phaseId },
-			phase.lock!,
-		);
+		await this.persistPlanPhaseQueueTake(id, phaseId, lockRes.plan, phase.lock!);
 		await this.fanOutLockChanged(
 			"plan-phase",
 			"acquire",

@@ -5,7 +5,9 @@ import {
 	MATRIX_USER_EMAIL,
 	MATRIX_USER_SUB,
 	resolveLockHolder,
+	resolveLockSessionId,
 	sameLockPrincipal,
+	sessionLockConflict,
 } from "./identity.ts";
 
 function req(headers: Record<string, string> = {}): Request {
@@ -117,6 +119,34 @@ describe("sameLockPrincipal", () => {
 		it("rejects lock without holder_kind even when agent_id matches", () => {
 			const lock = { agent_id: "ged-orchestrator" };
 			assert.equal(sameLockPrincipal(agentHolder, lock), false);
+		});
+	});
+
+	describe("sessionLockConflict", () => {
+		it("no conflict when lock has no session_id", () => {
+			assert.equal(sessionLockConflict({ session_id: undefined }, "sess-a"), false);
+		});
+
+		it("no conflict when incoming omits session_id (board renew)", () => {
+			assert.equal(sessionLockConflict({ session_id: "sess-a" }, undefined), false);
+		});
+
+		it("conflict when session_id differs", () => {
+			assert.equal(sessionLockConflict({ session_id: "sess-a" }, "sess-b"), true);
+		});
+
+		it("no conflict when session_id matches", () => {
+			assert.equal(sessionLockConflict({ session_id: "sess-a" }, "sess-a"), false);
+		});
+	});
+
+	describe("resolveLockSessionId", () => {
+		it("adopts incoming session on first acquire", () => {
+			assert.equal(resolveLockSessionId(null, "sess-a"), "sess-a");
+		});
+
+		it("keeps existing session on renew without incoming", () => {
+			assert.equal(resolveLockSessionId({ session_id: "sess-a" }, undefined), "sess-a");
 		});
 	});
 

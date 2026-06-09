@@ -41,11 +41,7 @@ export interface RevisionWriteContext {
 	lock?: SpecLock | null;
 }
 
-export interface RevisionStorage {
-	get<T>(key: string): Promise<T | undefined>;
-	put(key: string, value: unknown): Promise<void>;
-	delete(key: string): Promise<unknown>;
-}
+export type RevisionStorage = Pick<DurableObjectStorage, "get" | "put" | "delete">;
 
 export function revisionStorageKey(
 	kind: RevisionKind,

@@ -94,6 +94,7 @@ export type TakeInput = {
 	exclude: string[];
 	kind?: TakeKind;
 	lease_seconds?: number;
+	session_id?: string;
 	platform_root?: string;
 	platform_id: "ged";
 	workspace_isolation: boolean;
@@ -134,6 +135,17 @@ export function parseTakeInput(
 		}
 		lease_seconds = m.lease_seconds;
 	}
+	let session_id: string | undefined;
+	if (m.session_id !== undefined) {
+		if (typeof m.session_id !== "string" || !m.session_id.trim()) {
+			return { ok: false, error: "session_id must be a non-empty string" };
+		}
+		const trimmed = m.session_id.trim();
+		if (trimmed.length > 120) {
+			return { ok: false, error: "session_id must be at most 120 characters" };
+		}
+		session_id = trimmed;
+	}
 	const workspace_isolation = m.workspace_isolation === false ? false : m.workspace_isolation !== undefined ? m.workspace_isolation === true : true;
 	let platform_root: string | undefined;
 	if (m.platform_root !== undefined) {
@@ -154,7 +166,16 @@ export function parseTakeInput(
 	}
 	return {
 		ok: true,
-		value: { agent_id, exclude, kind, lease_seconds, platform_root, platform_id, workspace_isolation },
+		value: {
+			agent_id,
+			exclude,
+			kind,
+			lease_seconds,
+			session_id,
+			platform_root,
+			platform_id,
+			workspace_isolation,
+		},
 	};
 }
 

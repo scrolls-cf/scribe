@@ -24,6 +24,8 @@ export interface SpecLock {
 	lease_seconds?: number;
 	/** Orchestrator activity label (review, implement, refactor). */
 	activity?: string;
+	/** Cursor/ged session — blocks parallel sessions for same operator principal. */
+	session_id?: string;
 }
 
 export interface SpecOrchestrationFields {
@@ -541,6 +543,17 @@ export function parseOptionalLockBody(raw: unknown): string | undefined {
 		? (raw as { agent_id: string }).agent_id.trim()
 		: "";
 	return agent_id || undefined;
+}
+
+/** Optional session_id from acquire/renew body (max 120 chars). */
+export function parseOptionalSessionId(raw: unknown): string | undefined {
+	if (!raw || typeof raw !== "object") return undefined;
+	const session_id =
+		typeof (raw as { session_id?: unknown }).session_id === "string"
+			? (raw as { session_id: string }).session_id.trim()
+			: "";
+	if (!session_id || session_id.length > 120) return undefined;
+	return session_id;
 }
 
 /** Optional lock activity from acquire/renew body (lowercase, max 32 chars). */
