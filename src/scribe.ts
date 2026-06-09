@@ -26,6 +26,7 @@ import {
 	listLeaseEntries,
 	lockWithLease,
 	parseLeaseSeconds,
+	refreshLockLease,
 	deleteLeaseEntry,
 	putLeaseEntry,
 	removeLease,
@@ -704,6 +705,11 @@ export class Scribe extends DurableObject<ScribeEnv> {
 		}
 
 		const now = new Date().toISOString();
+		const holder = resolveLockHolder(request, undefined);
+		let activeLock = record.lock;
+		if (activeLock && holder && sameLockPrincipal(holder, activeLock, request)) {
+			activeLock = refreshLockLease(activeLock, now);
+		}
 		const nextStatus = parsed.value.status ?? record.status;
 		const nextBody = parsed.value.body !== undefined ? parsed.value.body : record.body;
 		const updated: SpecRecord = {
@@ -728,7 +734,7 @@ export class Scribe extends DurableObject<ScribeEnv> {
 				parsed.value.plan_review !== undefined ? parsed.value.plan_review : record.plan_review,
 			worker_scope:
 				parsed.value.worker_scope !== undefined ? parsed.value.worker_scope : record.worker_scope,
-			lock: nextStatus === "done" ? null : record.lock,
+			lock: nextStatus === "done" ? null : activeLock,
 			updated_at: now,
 			etag: now,
 		};
@@ -754,6 +760,20 @@ export class Scribe extends DurableObject<ScribeEnv> {
 				await putSpecRecord(txn, withRevisions);
 				await deleteLeaseEntry(txn, { kind: "spec", slug }, sql);
 				await removeWorkspaceLease(txn, slug);
+			});
+			await syncLeaseAlarm(this.ctx.storage, sql);
+		} else if (activeLock && activeLock.expires_at !== record.lock?.expires_at) {
+			const sql = this.revisionSql();
+			await this.ctx.storage.transaction(async (txn) => {
+				await putSpecRecord(txn, withRevisions);
+				await putLeaseEntry(txn, { kind: "spec", slug }, activeLock, sql);
+				const ws = await getWorkspaceLease(txn, slug);
+				if (ws) {
+					await upsertWorkspaceLease(
+						txn,
+						computeWorkspaceManifest(slug, ws.kind, ws.platform_root, activeLock),
+					);
+				}
 			});
 			await syncLeaseAlarm(this.ctx.storage, sql);
 		} else {

@@ -150,7 +150,9 @@ export function nextActionsForMode(
 				"Then implement or re check-in",
 			];
 		default:
-			return ["No assignment — queue empty or blocked; wait for lease expiry or release stale locks"];
+			return [
+				"No assignment — queue empty or blocked; stale locks auto-release after 10 min idle",
+			];
 	}
 }
 

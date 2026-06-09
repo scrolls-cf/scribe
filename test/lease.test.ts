@@ -9,6 +9,7 @@ import {
 	lockWithLease,
 	nextLeaseExpiryMs,
 	parseLeaseSeconds,
+	refreshLockLease,
 	removeLease,
 	syncLeaseAlarm,
 	upsertLease,
@@ -58,14 +59,26 @@ class MockStorage {
 
 describe("lease helpers", () => {
 	it("defaults lease seconds by holder kind", () => {
-		assert.equal(defaultLeaseSeconds("agent"), 14_400);
+		assert.equal(defaultLeaseSeconds("agent"), 600);
 		assert.equal(defaultLeaseSeconds("user"), 86_400);
+	});
+
+	it("refreshLockLease extends expires_at from now", () => {
+		const lock = lockWithLease(
+			{ holder_id: "agent-1", holder_kind: "agent" },
+			"2026-01-01T00:00:00.000Z",
+			600,
+			"implement",
+		);
+		const refreshed = refreshLockLease(lock, "2026-01-01T00:10:00.000Z");
+		assert.equal(refreshed.expires_at, "2026-01-01T00:20:00.000Z");
+		assert.equal(refreshed.activity, "implement");
 	});
 
 	it("parses and clamps lease_seconds", () => {
 		const unset = parseLeaseSeconds(undefined, "agent");
 		assert.ok(unset.ok);
-		if (unset.ok) assert.equal(unset.value, 14_400);
+		if (unset.ok) assert.equal(unset.value, 600);
 		const bad = parseLeaseSeconds(60, "agent");
 		assert.equal(bad.ok, false);
 		const ok = parseLeaseSeconds(600, "agent");

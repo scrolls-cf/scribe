@@ -5,7 +5,8 @@ import type { HolderKind } from "./spec.ts";
 export const LEASE_PREFIX = "lease:";
 export const MIN_LEASE_SECONDS = 300;
 export const MAX_LEASE_SECONDS = 86400;
-export const DEFAULT_AGENT_LEASE_SECONDS = 14_400;
+/** Idle unblock — spec/plan locks expire when holder is inactive this long. */
+export const DEFAULT_AGENT_LEASE_SECONDS = 600;
 export const DEFAULT_USER_LEASE_SECONDS = 86_400;
 
 export type LeaseTarget =
@@ -60,6 +61,19 @@ export function parseOptionalLeaseSeconds(raw: unknown, holderKind: HolderKind):
 		holderKind,
 	);
 	return parsed.ok ? parsed.value : defaultLeaseSeconds(holderKind);
+}
+
+/** Extend lock expiry from now — same holder, same lease_seconds window. */
+export function refreshLockLease(lock: SpecLock, now = new Date().toISOString()): SpecLock {
+	const holderKind = lock.holder_kind ?? "agent";
+	const leaseSeconds = lock.lease_seconds ?? defaultLeaseSeconds(holderKind);
+	return lockWithLease(
+		{ holder_id: lock.agent_id, holder_kind: holderKind },
+		now,
+		leaseSeconds,
+		lock.activity,
+		lock.session_id,
+	);
 }
 
 export function lockWithLease(
