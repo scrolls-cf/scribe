@@ -97,12 +97,24 @@ describe("applyReviewPassed", () => {
 
 describe("applyPlanReviewPassed", () => {
 	it("unblocks plan and sets Implement on spec", () => {
-		const spec = baseSpec({ review_gate: "passed", status: "ready" });
+		const spec = baseSpec({
+			review_gate: "passed",
+			status: "ready",
+			plan_review: "required",
+			body: `## Implementation status
+
+| **Status** | Pending |
+| **Review gate** | passed |
+| **Plan review** | required |
+`,
+		});
 		const plan = basePlan();
 		const { spec: nextSpec, plan: nextPlan } = applyPlanReviewPassed(spec, plan);
 		assert.equal(nextPlan.status, "ready");
 		assert.equal(nextSpec.active_phase, "Implement");
 		assert.equal(nextSpec.plan_id, "ged-a-plan");
+		assert.equal(nextSpec.plan_review, "passed");
+		assert.match(nextSpec.body, /Plan review.*passed/i);
 	});
 
 	it("throws when plan not blocked", () => {
@@ -124,6 +136,24 @@ describe("applyShip", () => {
 		assert.match(nextSpec.body, /Shipped/);
 		assert.equal(nextPlan?.status, "done");
 		assert.equal(nextPlan?.phases.every((p) => p.status === "done"), true);
+	});
+
+	it("clears stale plan_review required on ship", () => {
+		const spec = baseSpec({
+			review_gate: "passed",
+			status: "in_progress",
+			plan_review: "required",
+			body: `## Implementation status
+
+| **Status** | Pending |
+| **Review gate** | passed |
+| **Plan review** | required |
+`,
+		});
+		const plan = basePlan({ status: "in_progress" });
+		const { spec: nextSpec } = applyShip(spec, plan);
+		assert.equal(nextSpec.plan_review, "passed");
+		assert.match(nextSpec.body, /Plan review.*passed/i);
 	});
 });
 

@@ -24,6 +24,7 @@ import {
   specReviewInstructionsHref,
   specReviewLoopActive,
   specReviewNoticeState,
+  planReviewAttention,
   planReviewLoopActive,
   revisionListMeta,
   revisionSummaryLabel,
@@ -380,6 +381,46 @@ describe("revision loop helpers", () => {
       "Δ +4 −2",
     );
     assert.equal(revisionListMeta({ revisions_count: 1 }, true), "Δ");
+  });
+});
+
+describe("planReviewAttention", () => {
+  it("hides required on done specs", () => {
+    assert.equal(
+      planReviewAttention({ status: "done", plan_review: "required" }),
+      false,
+    );
+  });
+
+  it("hides required when linked plan is no longer blocked", () => {
+    assert.equal(
+      planReviewAttention(
+        { status: "ready", plan_review: "required", active_phase: "Plan" },
+        { status: "ready" },
+      ),
+      false,
+    );
+  });
+
+  it("shows required only while plan is blocked", () => {
+    assert.equal(
+      planReviewAttention(
+        { status: "ready", plan_review: "required", active_phase: "Plan review" },
+        { status: "blocked" },
+      ),
+      true,
+    );
+  });
+});
+
+describe("specOrchestrationLabels", () => {
+  it("omits stale plan review chip on shipped specs", () => {
+    const labels = specOrchestrationLabels({
+      status: "done",
+      review_gate: "passed",
+      plan_review: "required",
+    });
+    assert.deepEqual(labels, []);
   });
 });
 

@@ -13,7 +13,7 @@ import {
 	serviceRegistryKey,
 	type ServiceRegistration,
 } from "./service-registry";
-import { resolveLockHolder, type LockHolder } from "./identity.ts";
+import { resolveLockHolder, sameLockPrincipal, type LockHolder } from "./identity.ts";
 import {
 	dueLeaseEntries,
 	leaseStorageKey,
@@ -977,7 +977,7 @@ export class Scribe extends DurableObject {
 			return Response.json({ ok: false, error: "identity or agent_id required" }, { status: 400 });
 		}
 
-		if (record.lock && record.lock.agent_id !== holder.holder_id) {
+		if (record.lock && !sameLockPrincipal(holder, record.lock, request)) {
 			return Response.json(
 				{ ok: false, error: "lock held", lock: record.lock },
 				{ status: 409 },
@@ -1010,18 +1010,17 @@ export class Scribe extends DurableObject {
 		}
 		const record = await hydrateSpecRecord(this.ctx.storage, slug, stored);
 
-		let agentId: string | undefined;
+		let raw: unknown = {};
 		if (request.headers.get("content-type")?.includes("application/json")) {
 			try {
-				const raw = await request.json();
-				const parsed = parseLockInput(raw);
-				if (parsed.ok) agentId = parsed.value.agent_id;
+				raw = await request.json();
 			} catch {
 				/* optional body */
 			}
 		}
 
-		if (record.lock && agentId && record.lock.agent_id !== agentId) {
+		const holder = resolveLockHolder(request, parseOptionalLockBody(raw));
+		if (record.lock && holder && !sameLockPrincipal(holder, record.lock, request)) {
 			return Response.json(
 				{ ok: false, error: "lock held by another agent", lock: record.lock },
 				{ status: 403 },
@@ -1324,7 +1323,7 @@ export class Scribe extends DurableObject {
 			return Response.json({ ok: false, error: "identity or agent_id required" }, { status: 400 });
 		}
 
-		if (record.lock && record.lock.agent_id !== holder.holder_id) {
+		if (record.lock && !sameLockPrincipal(holder, record.lock, request)) {
 			return Response.json(
 				{ ok: false, error: "lock held", lock: record.lock },
 				{ status: 409 },
@@ -1358,18 +1357,17 @@ export class Scribe extends DurableObject {
 		}
 		const record = normalizePlanRecord(stored);
 
-		let agentId: string | undefined;
+		let raw: unknown = {};
 		if (request.headers.get("content-type")?.includes("application/json")) {
 			try {
-				const raw = await request.json();
-				const parsed = parseLockInput(raw);
-				if (parsed.ok) agentId = parsed.value.agent_id;
+				raw = await request.json();
 			} catch {
 				/* optional body */
 			}
 		}
 
-		if (record.lock && agentId && record.lock.agent_id !== agentId) {
+		const holder = resolveLockHolder(request, parseOptionalLockBody(raw));
+		if (record.lock && holder && !sameLockPrincipal(holder, record.lock, request)) {
 			return Response.json(
 				{ ok: false, error: "lock held by another agent", lock: record.lock },
 				{ status: 403 },
@@ -1437,6 +1435,8 @@ export class Scribe extends DurableObject {
 					candidate.record,
 					candidate.phase.id,
 					leaseSeconds,
+					undefined,
+					request,
 				);
 				if (lockRes.ok) {
 					await this.ctx.storage.put(planKey(candidate.record.id), lockRes.plan);
@@ -1485,7 +1485,13 @@ export class Scribe extends DurableObject {
 			}
 
 			if (candidate.kind === "phase_bridge") {
-				const lockRes = this.acquireSpecLockInternal(holder, candidate.record, leaseSeconds);
+				const lockRes = this.acquireSpecLockInternal(
+					holder,
+					candidate.record,
+					leaseSeconds,
+					undefined,
+					request,
+				);
 				if (lockRes.ok) {
 					await putSpecRecord(this.ctx.storage, lockRes.spec);
 					await upsertLease(
@@ -1526,7 +1532,13 @@ export class Scribe extends DurableObject {
 				continue;
 			}
 
-			const lockRes = this.acquireSpecLockInternal(holder, candidate.record, leaseSeconds);
+			const lockRes = this.acquireSpecLockInternal(
+				holder,
+				candidate.record,
+				leaseSeconds,
+				undefined,
+				request,
+			);
 			if (lockRes.ok) {
 				await putSpecRecord(this.ctx.storage, lockRes.spec);
 				await upsertLease(
@@ -1569,8 +1581,9 @@ export class Scribe extends DurableObject {
 		record: SpecRecord,
 		leaseSeconds: number,
 		activity?: string,
+		request?: Request,
 	): { ok: true; spec: SpecRecord } | { ok: false; error: string; status: number } {
-		if (record.lock && record.lock.agent_id !== holder.holder_id) {
+		if (record.lock && !sameLockPrincipal(holder, record.lock, request)) {
 			return { ok: false, error: "lock held", status: 409 };
 		}
 		const now = new Date().toISOString();
@@ -1590,6 +1603,7 @@ export class Scribe extends DurableObject {
 		phaseId: string,
 		leaseSeconds: number,
 		activity?: string,
+		request?: Request,
 	): { ok: true; plan: PlanRecord } | { ok: false; error: string; status: number } {
 		const pickable = nextPickablePhase(record);
 		if (!pickable || pickable.id !== phaseId) {
@@ -1597,7 +1611,7 @@ export class Scribe extends DurableObject {
 		}
 		const phase = record.phases.find((p) => p.id === phaseId);
 		if (!phase) return { ok: false, error: "phase not found", status: 404 };
-		if (phase.lock && phase.lock.agent_id !== holder.holder_id) {
+		if (phase.lock && !sameLockPrincipal(holder, phase.lock, request)) {
 			return { ok: false, error: "lock held", status: 409 };
 		}
 		const now = new Date().toISOString();
@@ -1660,6 +1674,7 @@ export class Scribe extends DurableObject {
 			phaseId,
 			leaseParsed.value,
 			activity,
+			request,
 		);
 		if (!lockRes.ok) {
 			return Response.json({ ok: false, error: lockRes.error }, { status: lockRes.status });
@@ -1697,16 +1712,15 @@ export class Scribe extends DurableObject {
 			return Response.json({ ok: false, error: "phase not found" }, { status: 404 });
 		}
 
-		let agentId: string | undefined;
+		let raw: unknown = {};
 		try {
-			const raw = await request.json();
-			const parsed = parseLockInput(raw);
-			if (parsed.ok) agentId = parsed.value.agent_id;
+			raw = await request.json();
 		} catch {
 			/* optional body */
 		}
 
-		if (phase.lock && agentId && phase.lock.agent_id !== agentId) {
+		const holder = resolveLockHolder(request, parseOptionalLockBody(raw));
+		if (phase.lock && holder && !sameLockPrincipal(holder, phase.lock, request)) {
 			return Response.json(
 				{ ok: false, error: "lock held by another agent", lock: phase.lock },
 				{ status: 403 },

@@ -163,7 +163,9 @@ export function renderToolbar(toolbar, spec, { linkedPlans = [], workspace = nul
   status.textContent = specBoardStatusLabel(spec);
   toolbar.append(status);
 
-  for (const label of specOrchestrationLabels(spec)) {
+  for (const label of specOrchestrationLabels(spec, {
+    plan: linkedPlans.length === 1 ? linkedPlans[0] : null,
+  })) {
     const chip = document.createElement("span");
     chip.className = "status-pill status-pill--orch";
     chip.dataset.orch = label;

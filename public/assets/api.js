@@ -187,19 +187,40 @@ export function specBoardStatusLabel(spec) {
   return `Intent · ${statusLabel(specBoardStatus(spec))}`;
 }
 
+/**
+ * True when board should show plan-review attention (excludes stale required on shipped work).
+ * @param {{ status?: string, plan_review?: string | null, active_phase?: string | null } | null | undefined} spec
+ * @param {{ status?: string } | null | undefined} [plan]
+ */
+export function planReviewAttention(spec, plan) {
+  if (!spec || spec.status === "done") return false;
+  const planReview = String(spec.plan_review ?? "")
+    .toLowerCase()
+    .replace(/\*\*/g, "")
+    .trim();
+  if (!planReview || planReview === "n/a" || planReview === "na") return false;
+  if (planReview === "passed" || planReview.startsWith("passed")) return false;
+  if (planReview !== "required") return false;
+  const planStatus = String(plan?.status ?? "")
+    .toLowerCase()
+    .trim();
+  if (planStatus && planStatus !== "blocked") return false;
+  const phase = String(spec.active_phase ?? "")
+    .toLowerCase()
+    .trim();
+  if (phase === "implement" || phase.startsWith("implement")) return false;
+  return true;
+}
+
 /** Orchestration chips for list/detail (review gate + plan review). */
-export function specOrchestrationLabels(spec) {
+export function specOrchestrationLabels(spec, opts = {}) {
   /** @type {string[]} */
   const labels = [];
   const reviewLabel = specReviewGateLabel(spec);
   if (reviewLabel) {
     labels.push(`Review · ${reviewLabel}`);
   }
-  const planReview = String(spec?.plan_review ?? "")
-    .toLowerCase()
-    .replace(/\*\*/g, "")
-    .trim();
-  if (planReview === "required") {
+  if (planReviewAttention(spec, opts.plan)) {
     labels.push("Plan review · Required");
   }
   return labels;
@@ -434,12 +455,7 @@ export function specReviewLoopActive(spec) {
 export function planReviewLoopActive(plan, spec) {
   const activity = String(plan?.lock?.activity ?? "").toLowerCase();
   if (activity === "review" || activity === "refactor") return true;
-  if (plan?.status !== "blocked") return false;
-  const planReview = String(spec?.plan_review ?? "")
-    .toLowerCase()
-    .replace(/\*\*/g, "")
-    .trim();
-  return planReview === "required";
+  return planReviewAttention(spec, plan);
 }
 
 /** @param {{ lines_added?: number, lines_removed?: number, created_at?: string } | null | undefined} lastRevision */

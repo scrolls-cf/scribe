@@ -66,6 +66,7 @@ export function parseSpecFooterFields(body: string): SpecFooterFields {
 		const n = planReviewRaw.toLowerCase().replace(/\*\*/g, "").trim();
 		if (n === "n/a" || n === "na") plan_review = "n/a";
 		else if (n === "required") plan_review = "required";
+		else if (n === "passed" || n.startsWith("passed")) plan_review = "passed";
 	}
 	const plan_id = normalizePlanLink(
 		parseField(section, "Plan") ?? parseField(section, "Plan:"),

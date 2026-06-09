@@ -184,6 +184,24 @@ function pickOrchestrationString(
 	return footer ?? null;
 }
 
+/** Footer passed wins over stale DO required (plan_review_passed before metadata sync). */
+export function reconcilePlanReview(
+	stored: string | null | undefined,
+	footer: string | null | undefined,
+): string | null {
+	const storedNorm = String(stored ?? "")
+		.toLowerCase()
+		.replace(/\*\*/g, "")
+		.trim();
+	const footerNorm = String(footer ?? "")
+		.toLowerCase()
+		.replace(/\*\*/g, "")
+		.trim();
+	if (footerNorm === "passed" && storedNorm === "required") return "passed";
+	if (stored && stored.trim()) return stored.trim();
+	return footer ?? null;
+}
+
 function pickWorkerScope(
 	explicit: unknown,
 	stored: string[] | undefined,
@@ -274,7 +292,7 @@ export function toSpecOrientView(
 		design_lane: stored.design_lane ?? footerFields.design_lane,
 		plan_id: stored.plan_id ?? footerFields.plan_id,
 		review_gate: stored.review_gate ?? footerFields.review_gate,
-		plan_review: stored.plan_review ?? footerFields.plan_review,
+		plan_review: reconcilePlanReview(stored.plan_review, footerFields.plan_review),
 		worker_scope:
 			stored.worker_scope && stored.worker_scope.length > 0
 				? stored.worker_scope

@@ -339,6 +339,15 @@ describe("linkSpecPlanId", () => {
 	});
 });
 
+describe("reconcilePlanReview", () => {
+	it("prefers footer passed over stale DO required", async () => {
+		const { reconcilePlanReview } = await import("./spec.ts");
+		assert.equal(reconcilePlanReview("required", "passed"), "passed");
+		assert.equal(reconcilePlanReview("required", "required"), "required");
+		assert.equal(reconcilePlanReview(null, "passed"), "passed");
+	});
+});
+
 describe("parsePatchSpecInput", () => {
 	it("accepts orchestration metadata fields", () => {
 		const result = parsePatchSpecInput({

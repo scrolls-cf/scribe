@@ -11,6 +11,7 @@ import {
 	type SpecPhaseUpdate,
 	upsertFooterActivePhase,
 	upsertFooterPlan,
+	upsertFooterPlanReview,
 	upsertFooterReviewGate,
 	upsertFooterStatus,
 } from "./spec-footer-upsert.ts";
@@ -157,10 +158,19 @@ function planReviewValue(record: SpecRecord): string | null {
 	return record.plan_review ?? parseSpecFooterFields(record.body).plan_review;
 }
 
+export function isPlanReviewPassed(record: SpecRecord): boolean {
+	const value = planReviewValue(record);
+	if (!value) return false;
+	const normalized = value.toLowerCase().replace(/\*\*/g, "").trim();
+	return normalized === "passed" || normalized.startsWith("passed");
+}
+
 export function isPlanReviewRequired(record: SpecRecord): boolean {
 	const value = planReviewValue(record);
 	if (!value) return false;
 	const normalized = value.toLowerCase().replace(/\*\*/g, "").trim();
+	if (normalized === "n/a" || normalized === "na") return false;
+	if (isPlanReviewPassed(record)) return false;
 	return normalized === "required";
 }
 
@@ -317,6 +327,7 @@ export function applyPlanReviewPassed(
 
 	const now = new Date().toISOString();
 	let body = payload.body ?? specRecord.body;
+	body = upsertFooterPlanReview(body, "passed");
 	body = upsertFooterActivePhase(body, "Implement");
 
 	const updatedSpec = normalizeSpecRecord({
@@ -324,6 +335,7 @@ export function applyPlanReviewPassed(
 		body,
 		active_phase: "Implement",
 		plan_id: planRecord.id,
+		plan_review: "passed",
 		...stamp(now),
 	});
 
@@ -447,6 +459,9 @@ export function applyShip(
 	if (payload.mark_phases_complete !== false) {
 		body = markPhaseTableComplete(body);
 	}
+	if (isPlanReviewRequired(specRecord)) {
+		body = upsertFooterPlanReview(body, "passed");
+	}
 	body = upsertFooterStatus(body, "Shipped");
 	const planId = plan?.id ?? specRecord.plan_id ?? `${specRecord.slug}-plan`;
 	if (plan) {
@@ -458,6 +473,7 @@ export function applyShip(
 		body,
 		status: "done",
 		lock: null,
+		...(isPlanReviewRequired(specRecord) ? { plan_review: "passed" } : {}),
 		...stamp(now),
 	});
 

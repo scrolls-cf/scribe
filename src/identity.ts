@@ -34,6 +34,33 @@ export function lockFromHolder(holder: LockHolder, acquiredAt: string) {
 	};
 }
 
+export interface LockPrincipal {
+	agent_id: string;
+	holder_kind?: HolderKind;
+}
+
+/** Whether request holder may acquire, renew, or release the existing lock. */
+export function sameLockPrincipal(
+	holder: LockHolder,
+	lock: LockPrincipal,
+	request?: Request,
+): boolean {
+	const lockKind = lock.holder_kind;
+
+	if (holder.holder_kind === "agent") {
+		return lockKind === "agent" && holder.holder_id === lock.agent_id;
+	}
+
+	if (lockKind === "agent") return false;
+
+	if (holder.holder_id === lock.agent_id) return true;
+
+	const sub = request?.headers.get(MATRIX_USER_SUB)?.trim();
+	if (sub && lock.agent_id === sub) return true;
+
+	return false;
+}
+
 export function holderLabel(lock: { agent_id: string; holder_kind?: HolderKind }): string {
 	if (lock.holder_kind === "user") return lock.agent_id;
 	return lock.agent_id;

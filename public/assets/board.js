@@ -667,7 +667,9 @@ function createSpecRow(spec) {
       : linkedPlans.length > 1
         ? `<span class="work-row-plan-rollup">${linkedPlans.length} plans</span>`
         : "";
-  const orchLabels = specOrchestrationLabels(spec);
+  const orchLabels = specOrchestrationLabels(spec, {
+    plan: linkedPlans.length === 1 ? linkedPlans[0] : null,
+  });
   const orchPills = orchLabels
     .map(
       (label) =>
