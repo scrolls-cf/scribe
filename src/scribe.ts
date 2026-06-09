@@ -26,6 +26,7 @@ import {
 	listLeaseEntries,
 	lockWithLease,
 	parseLeaseSeconds,
+	deleteLeaseEntry,
 	putLeaseEntry,
 	removeLease,
 	syncLeaseAlarm,
@@ -1064,11 +1065,30 @@ export class Scribe extends DurableObject {
 			updated_at: now,
 			etag: now,
 		};
-		await putSpecRecord(this.ctx.storage, updated);
-		await removeLease(this.ctx.storage, { kind: "spec", slug });
+		await this.releaseSpecLockRecord(slug, updated);
 		await removeWorkspaceLease(this.ctx.storage, slug);
 		await this.fanOutLockChanged("spec", "release", null, slug);
 		return Response.json({ ok: true, spec: updated });
+	}
+
+	private async releaseSpecLockRecord(slug: string, spec: SpecRecord): Promise<void> {
+		await this.ctx.storage.transaction(async (txn) => {
+			await putSpecRecord(txn, spec);
+			await deleteLeaseEntry(txn, { kind: "spec", slug });
+		});
+		await syncLeaseAlarm(this.ctx.storage);
+	}
+
+	private async releasePlanLockRecord(
+		id: string,
+		plan: PlanRecord,
+		target: LeaseTarget,
+	): Promise<void> {
+		await this.ctx.storage.transaction(async (txn) => {
+			await txn.put(planKey(id), plan);
+			await deleteLeaseEntry(txn, target);
+		});
+		await syncLeaseAlarm(this.ctx.storage);
 	}
 
 	private async persistSpecQueueTake(slug: string, spec: SpecRecord, lock: SpecLock): Promise<void> {
@@ -1457,8 +1477,7 @@ export class Scribe extends DurableObject {
 			lock: null,
 			updated_at: new Date().toISOString(),
 		};
-		await this.ctx.storage.put(planKey(id), updated);
-		await removeLease(this.ctx.storage, { kind: "plan", id });
+		await this.releasePlanLockRecord(id, updated, { kind: "plan", id });
 		if (record.spec_slug) {
 			await removeWorkspaceLease(this.ctx.storage, record.spec_slug);
 		}
@@ -1823,8 +1842,7 @@ export class Scribe extends DurableObject {
 			phases: record.phases.map((p) => (p.id === phaseId ? { ...p, lock: null } : p)),
 			updated_at: new Date().toISOString(),
 		};
-		await this.ctx.storage.put(planKey(id), updated);
-		await removeLease(this.ctx.storage, { kind: "plan-phase", id, phaseId });
+		await this.releasePlanLockRecord(id, updated, { kind: "plan-phase", id, phaseId });
 		if (record.spec_slug) {
 			await removeWorkspaceLease(this.ctx.storage, record.spec_slug);
 		}

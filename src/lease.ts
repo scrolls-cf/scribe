@@ -99,6 +99,7 @@ export async function listLeaseEntries(
 }
 
 type LeaseStorageWriter = Pick<DurableObjectStorage, "put">;
+type LeaseStorageDeleter = Pick<DurableObjectStorage, "delete">;
 
 /** Persist lease index entry only — pair with syncLeaseAlarm after transactions commit. */
 export async function putLeaseEntry(
@@ -126,11 +127,19 @@ export async function upsertLease(
 	await syncLeaseAlarm(storage);
 }
 
+/** Remove lease index entry only — pair with syncLeaseAlarm after transactions commit. */
+export async function deleteLeaseEntry(
+	storage: LeaseStorageDeleter,
+	target: LeaseTarget,
+): Promise<void> {
+	await storage.delete(leaseStorageKey(target));
+}
+
 export async function removeLease(
 	storage: DurableObjectStorage,
 	target: LeaseTarget,
 ): Promise<void> {
-	await storage.delete(leaseStorageKey(target));
+	await deleteLeaseEntry(storage, target);
 	await syncLeaseAlarm(storage);
 }
 
